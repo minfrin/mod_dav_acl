@@ -1,0 +1,42 @@
+diff -Naur apr-1.2.7/configure.in apr-1.2.7-ju/configure.in
+--- apr-1.2.7/configure.in	2006-03-21 21:29:41.000000000 +0200
++++ apr-1.2.7-ju/configure.in	2007-01-31 12:16:20.000000000 +0200
+@@ -1869,6 +1869,14 @@
+ #include <sys/types.h>
+ #include <time.h>])
+ 
++dnl ----------------------------- Checking for nanosec Time Support 
++echo "${nl}Checking for Nanosec Time Support..."
++
++AC_CHECK_MEMBERS([struct stat.st_mtim, struct stat.st_atim, struct stat.st_ctim],,,[
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <unistd.h>])
++
+ dnl ----------------------------- Checking for Networking Support 
+ echo "${nl}Checking for Networking support..."
+ AC_MSG_CHECKING(for in_addr in netinet/in.h)
+diff -Naur apr-1.2.7/file_io/unix/filestat.c apr-1.2.7-ju/file_io/unix/filestat.c
+--- apr-1.2.7/file_io/unix/filestat.c	2005-02-04 22:44:01.000000000 +0200
++++ apr-1.2.7-ju/file_io/unix/filestat.c	2007-01-31 12:23:25.000000000 +0200
+@@ -83,6 +83,20 @@
+     apr_time_ansi_put(&finfo->atime, info->st_atime);
+     apr_time_ansi_put(&finfo->mtime, info->st_mtime);
+     apr_time_ansi_put(&finfo->ctime, info->st_ctime);
++    
++    /* added nanonsec timestamp info */
++    #if HAVE_STRUCT_STAT_ST_MTIM
++    	finfo->mtime += info->st_mtim.tv_nsec / 1000;
++    #endif
++    
++    #if HAVE_STRUCT_STAT_ST_ATIM
++    	finfo->atime += info->st_atim.tv_nsec / 1000;
++    #endif
++    
++    #if HAVE_STRUCT_STAT_ST_CTIM
++    	finfo->ctime += info->st_ctim.tv_nsec / 1000;
++    #endif
++        
+     /* ### needs to be revisited  
+      * if (wanted & APR_FINFO_CSIZE) {
+      *   finfo->csize = info->st_blocks * 512;

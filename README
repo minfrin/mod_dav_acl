@@ -1,0 +1,214 @@
+mod_dav_acl
+-----------
+-an RFC3744 implementation based on Apache (tested in linux only)
+
+-requires patches to Apache, mostly to mod_dav module, patch(es) included.
+Patch contains strong ETag handling, usec timestamps to ETags (libapr-patch,
+latest releases support already usec timestamps), conditional PUTs (fixed after
+2.2.8 apache) and some hooks to allow integration of ACL handlings. Apply the
+patch to Apache sources and compile it before using this module.
+
+-apr-util patch is required with the 2.2.12 -> series of apache patches
+
+-with the old apr library the apr patch enables nano (actually u) second
+timestamps in resource handlings. Patch is optional (etags aren't just that
+strong without it), and you can add both inode and size directives to etags to
+make them stronger.
+
+-mod_dav_acl must be loaded after mod_dav since it uses symbols from mod_dav
+
+-optionally (compile time option, build tests xattr existance) ACL (meta)info is
+stored within the extended attributes of the filesystem. Currently XFS probably
+the most convenient to work with (65k EA limit + nanosecond timestamps enabled
+by default). In ext3/4 filesystem EAs can be enabled with the option user_xattr.
+It is preferable to utilize EAs since they are faster than using the "standard"
+property database (especially writing seems to be much faster). This is relevant
+e.g. with basic puts, since the owner of a resource is stored allways although
+acls were not otherwise utilized at all (== acl-method not used in practice). If
+EA usage fails or aren't supported, standard db is used.
+
+-principals are stored into a shared memory segment to allow faster ACL
+processing, though some other optimizations would be nice as well...
+
+-principal uris are either of type: <http://example.com/principals/[user]> or
+<http://example.com/principals/[user]/self>. The latter format allows users
+to create their own groups.
+
+
+Configuration directives:
+-------------------------
+AclLockFile  /var/tmp/davacl.lock
+-lock filename for shared memory
+
+AclSharedMemFile /var/tmp/davacl.shm
+-shared memory name
+
+AclSharedMemSize 65000
+-max size of shared memory segment, contains the list of principals (uris)
+
+AclPrincipals http://example.com/principals
+-base URI for principals
+
+AclPrincipalDir /var/principals
+-real absolute local directory path for principals
+
+AclOwnerFullRights on/off
+-the owner (if exists) has full rights to the resource if not any acl is set.
+
+DAVETagResponse on/off
+-enable strong ETag responses (required e.g. by CalDAV/XCAP/CardDAV)
+
+DAVACL on/off
+-enable ACL handling
+
+AclUsePropertyDB on/off
+-store ACL info into standard property database instead of extended attributes
+of a filesysten (default on without xattr enabled builds). off == EAs activated.
+
+AclAggregatedCurrentUserPrivilegeSet on/off
+-"current-user-privilege-set" property aggregated into read privilege
+
+AclAggregatedAcl on/off
+-"acl" property aggregated into read privilege.
+
+in debian:"sudo a2enmod dav_acl" enables module loading and basic
+configuration
+
+
+Principal editings:
+-------------------
+-a simple shell script: acl-principals included for adding/removing principals
+
+-based on sending simple http (dav) requests to the server. Test client utilizes
+libcurl library.
+
+-does not include adding user identities into the password database (htdigest),
+so users (+credentials) must be added separetely.
+
+
+Apache patching (must still be done, patch integration going on):
+-----------------------------------------------------------------
+-with 2.2.12 apache or never, patch apr-util package first
+
+-apply one of the included patches to your Apache sources, e.g.:
+cd to/apache/src/directory
+patch -p1 < httpd-2.2.xx-ju.patch  (ju patch contains all httpd stuff)
+with <= 2.2.16 (separated patch set)
+patch -p1 < httpd-2.2.12-dav.patch
+patch -p1 < httpd-2.2.12-etag.patch
+patch -p1 < httpd-2.2.12-liveprops.patch
+patch -p1 < httpd-2.2.12-repos.patch
+if you compile from the trunk repository, liveprops and repos have been applied,
+so there's no need to try to apply those patches.
+-build with with dpkg-buildpackage/rpm-build (preferred) or by "standard"
+configure && make && make install
+-install patched apache including the development package, preferably using
+distributions packaging tools (dpkg or rpm)
+
+Install mod_dav_acl:
+--------------------
+-compile with dpkg-buildpackage or rpm-build (preferred) or by "standard"
+./configure && make
+-install by using dpkg (-i ..), rpm (-Uvh ...) or by make install
+-you might also need to regenerate the ./configure script with autogen.sh.
+
+
+Configurations:
+---------------
+-with debian/ubuntu you can enable dav_acl with a2enmod, with rpm based distros
+you probably need some manual editings for loadings of modules.
+-configure the usage of dav_acl within appropriate directories, and create
+required users (htdigest) and principals (acl-principals), and make sure apache
+daemon has appropriate access rights to those directories.
+
+
+Installation sequence in debian-based distro:
+---------------------------------------------
+   apt-get source apr-util
+   cd to-src-directory
+   patch apr-util && update debian/changelog release name (to simplify seeing
+      patched versions of installed packages)
+   build: dpkg-buildpackage -rfakeroot -uc -us -b
+   install bin & dev packages: sudo dpkg -i ...
+
+   apt-get source apache2
+   cd to-src-directory && patch apache && update debian/changelog
+   build: dpkg-buildpackage -rfakeroot -uc -us -b
+   install required bin, lib, dev packages: sudo dpkg -i ...
+
+   cd to-mod-dav-acl-directory
+   build: dpkg-buildpackage -rfakeroot -uc -us -b
+   install module (and dev) packages: sudo dpkg -i ...
+
+   configure apache, install credentials for users/testers and enable required
+   modules, and run tests e.g. with make check
+
+
+Tests:
+------
+-once the module is successfully compiled and loaded, tests can be run with
+make check or by running ./acl_tests. A simple libcurl testclient will send some
+basic tests to a server listening at localhost:8080.
+
+-you need to create (digest) users: joe, joppe and admin before running the
+tests (all share the same password == password) unless you modify the scripts,
+of course. Also /xxx/principals and /xxx/acltests directories must be created
+and accessable by apache/httpd (in debian-based distros 'www-data' user, and
+with fedora 'apache').
+
+Example dav_acl.conf for testing purposes:
+
+# for local testing only
+Listen 127.0.0.1:8080
+
+<VirtualHost 127.0.0.1:8080>
+    DocumentRoot /var/www/testing/www
+    ServerName localhost
+
+Alias /principals "/var/www/testing/principals"
+Alias /acltests "/var/www/testing/acltests/"
+
+AclOwnerFullRights on
+AclLockFile        /var/tmp/davacl.lock
+AclSharedMemFile   /var/tmp/davacl.shm
+AclSharedMemSize   65000
+AclPrincipals      http://localhost:8080/principals
+AclPrincipalDir    /var/www/testing/principals
+AclUsePropertyDB   off
+AclAggregatedCurrentUserPrivilegeSet on
+AclAggregatedAcl   off
+
+<Location /principals>
+   Dav on
+
+   AuthType Digest
+   AuthName "testing"
+   AuthUserFile /var/www/passwords
+   Require valid-user
+   AuthDigestProvider file
+
+   FileETag MTime
+
+   DAVETagResponse on
+   DAVACL on
+
+</Location>
+
+<Location /acltests>
+   Dav on
+
+   AuthType Digest
+   AuthName "testing"
+   AuthUserFile /var/www/passwords
+   Require valid-user
+   AuthDigestProvider file
+
+   FileETag MTime
+
+   DAVETagResponse on
+   DAVACL on
+
+</Location>
+
+</VirtualHost>
+

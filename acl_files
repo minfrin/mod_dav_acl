@@ -1,0 +1,629 @@
+# actual file tests
+
+function count()
+{
+rc="$?"
+cAll=$(($cAll+1))
+if [ "$rc" -eq "0" ]
+then
+  c=$(($c+1))
+  if [ "$debug" -eq "1" ] ; then
+    echo "OK"
+  fi
+else
+  cat $log
+  if [ "$debug" -eq "1" ] ; then
+    echo "failed"
+    exit -1
+  fi
+fi
+
+if [ "$debug" -eq "1" ]
+then
+  echo --------------------------------------------------------
+fi
+}
+
+function deb()
+{
+useragent="$(($cAll+1)) / $1"
+read retag <$etag
+
+if [ "$debug" -eq "1" ]
+then
+  echo --------------------------------------------------------
+  echo "test $(($cAll+1)) $1"
+fi
+}
+
+function h()
+{
+  sed -i s/LOCALHOST/"$hostname"/ $1
+}
+
+
+cat > principal << EOF
+EOF
+
+cat > propfind_principal.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+   <D:prop>
+      <D:resourcetype/>
+      <D:displayname/>
+      <D:getetag/>
+   </D:prop>
+ </D:propfind>
+EOF
+
+
+cat > named_prop.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+   <D:prop>
+      <x:unknown xmlns:x="foobar:"/>
+      <D:resourcetype/>
+      <D:displayname/>
+      <D:getetag/>
+   </D:prop>
+ </D:propfind>
+EOF
+
+cat > allprop.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+   <D:allprop/>
+</D:propfind>
+EOF
+
+cat > group-member-set.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<propertyupdate xmlns="DAV:">
+  <set>
+    <prop>
+     <group-member-set>
+       <href attr="foo" xmlns:x="bar" x:attr="foobar"
+       >http://LOCALHOST/principals/joe/self</href>
+       <href>http://LOCALHOST/principals/joe/1</href>
+       <href>http://LOCALHOST/principals/joe/2</href>
+       <href>http://LOCALHOST/principals/lisa</href></group-member-set>
+    </prop>
+  </set>
+</propertyupdate>
+EOF
+
+h group-member-set.xml
+
+cat > group-member-set-one.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<propertyupdate xmlns="DAV:">
+  <set>
+    <prop>
+      <group-member-set>
+        <href>http://LOCALHOST/principals/joe/self</href>
+      </group-member-set>
+    </prop>
+  </set>
+</propertyupdate>
+EOF
+
+h group-member-set-one.xml
+
+cat > set-display-name.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<propertyupdate xmlns="DAV:">
+  <set>
+    <prop>
+      <displayname>foo_group</displayname>
+      <C:calendar-home-set
+       xmlns:C="urn:ietf:params:xml:ns:caldav"
+       ><href>http://LOCALHOST/carddav/joe/</href></C:calendar-home-set>
+    </prop>
+  </set>
+</propertyupdate>
+EOF
+
+h set-display-name.xml
+
+cat > acl-group.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<D:acl xmlns:D="DAV:">
+  <D:ace>
+    <D:principal>
+      <D:property><D:owner/></D:property>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:all/></D:privilege>
+    </D:grant>
+  </D:ace>
+  <D:ace>
+    <D:principal>
+      <D:href>http://LOCALHOST/principals/joe/group</D:href>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:all/></D:privilege>
+    </D:grant>
+  </D:ace>
+  <D:ace>
+    <D:principal>
+      <D:all/>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:read/></D:privilege>
+    </D:grant>
+  </D:ace>
+</D:acl>
+EOF
+
+h acl-group.xml
+
+cat > acl-col-admin.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<D:acl xmlns:D="DAV:">
+  <D:ace>
+    <D:principal>
+      <D:property><D:owner/></D:property>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:all/></D:privilege>
+    </D:grant>
+  </D:ace>
+  <D:ace>
+    <D:principal>
+      <D:href>http://LOCALHOST/principals/joe/self</D:href>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:read/></D:privilege>
+      <D:privilege><D:bind/></D:privilege>
+      <D:privilege><D:read-acl/></D:privilege>
+    </D:grant>
+  </D:ace>
+</D:acl>
+EOF
+
+h acl-col-admin.xml
+
+cat > acl-self-admin-joppe.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<D:acl xmlns:D="DAV:">
+  <D:ace>
+    <D:principal>
+      <D:property><D:owner/></D:property>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:all/></D:privilege>
+    </D:grant>
+  </D:ace>
+  <D:ace>
+    <D:principal>
+      <D:href>http://LOCALHOST/principals/joe/self</D:href>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:read/></D:privilege>
+      <D:privilege><D:write-properties/></D:privilege>
+      <D:privilege><D:read-acl/></D:privilege>
+      <D:privilege><D:bind/></D:privilege>
+    </D:grant>
+  </D:ace>
+     <!-- allow joppe to read -->
+     <D:ace>
+        <D:principal>
+           <D:href>http://LOCALHOST/principals/joppe/self</D:href>
+        </D:principal>
+        <D:grant>
+           <D:privilege><D:read/></D:privilege>
+        </D:grant>
+     </D:ace>
+</D:acl>
+EOF
+
+h acl-self-admin-joppe.xml
+
+cat > acl-self-admin.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<D:acl xmlns:D="DAV:">
+  <D:ace>
+    <D:principal>
+      <D:property><D:owner/></D:property>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:all/></D:privilege>
+    </D:grant>
+  </D:ace>
+  <D:ace>
+    <D:principal>
+      <D:href>http://LOCALHOST/principals/joe/self</D:href>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:read/></D:privilege>
+      <D:privilege><D:write-properties/></D:privilege>
+      <D:privilege><D:read-acl/></D:privilege>
+      <D:privilege><D:bind/></D:privilege>
+    </D:grant>
+  </D:ace>
+</D:acl>
+EOF
+
+h acl-self-admin.xml
+
+cat > acl-col.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<D:acl xmlns:D="DAV:">
+  <D:ace>
+    <D:principal>
+      <D:href>http://LOCALHOST/principals/admin</D:href>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:all/></D:privilege>
+    </D:grant>
+  </D:ace>
+  <D:ace>
+    <D:principal>
+      <D:all/>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:read/></D:privilege>
+    </D:grant>
+  </D:ace>
+</D:acl>
+EOF
+
+h acl-col.xml
+
+cat > principal-search.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<principal-property-search xmlns="DAV:">
+  <property-search>
+    <prop><displayname/></prop>
+    <match>foo_gr</match>
+  </property-search>
+  <prop>
+    <displayname/>
+  </prop>
+</principal-property-search>
+EOF
+
+cat > principal-search-all.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<principal-property-search xmlns="DAV:">
+  <property-search>
+    <prop><displayname/></prop>
+    <match/>
+  </property-search>
+  <prop>
+    <displayname/>
+  </prop>
+</principal-property-search>
+EOF
+
+cat > principal-search-404.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<principal-property-search xmlns="DAV:">
+  <property-search>
+    <prop><displayname/></prop>
+    <match>NO MATCH</match>
+  </property-search>
+  <prop>
+    <displayname/>
+  </prop>
+</principal-property-search>
+EOF
+
+
+cat > principal-prop-set.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<acl-principal-prop-set xmlns="DAV:">
+  <prop>
+    <displayname/>
+  </prop>
+</acl-principal-prop-set>
+EOF
+
+cat > propfind_group.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+   <D:prop>
+      <D:displayname/>
+      <D:owner/>
+      <D:acl/>
+      <D:getetag/>
+      <D:group-member-set/>
+      <D:current-user-privilege-set/>
+   </D:prop>
+ </D:propfind>
+EOF
+
+cat > set_acl.xml << EOF
+<?xml version="1.0"?><D:acl xmlns:D="DAV:">
+  <D:ace>
+    <D:principal>
+      <D:property><D:owner/></D:property>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:all/></D:privilege>
+    </D:grant>
+  </D:ace>
+  <D:ace>
+    <D:principal>
+      <D:href>http://LOCALHOST/principals/jarkinnu/self</D:href>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:read/></D:privilege>
+      <D:privilege><D:bind/></D:privilege>
+      <D:privilege><D:read-acl/></D:privilege>
+      <D:privilege><D:write-properties/></D:privilege>
+    </D:grant>
+  </D:ace>
+<D:ace>
+  <D:principal><D:href>http://LOCALHOST/principals/joppe/self</D:href></D:principal>
+  <D:grant>
+     <D:privilege><D:read/></D:privilege>
+     <D:privilege><D:write/></D:privilege>
+     <D:privilege><D:bind/></D:privilege>
+     <D:privilege><D:read-acl/></D:privilege>
+     <D:privilege><D:read-free-busy/></D:privilege>
+   </D:grant>
+</D:ace>
+</D:acl>
+EOF
+
+h set_acl.xml
+
+cat > propfind_joppe.xml << EOF
+<?xml version="1.0"?><D:propfind xmlns:D="DAV:">
+    <D:prop>
+        <D:getetag/>
+    <D:displayname/><D:current-user-principal/>
+   </D:prop>
+</D:propfind>
+EOF
+
+
+for j in `seq 1 1`;
+do
+
+user=admin:$passwd
+path=$uri/principals
+
+for i in `seq 1 1`;
+do
+
+# 1
+deb "Create a principal collection"
+$cli -v -u "$user" -A "$useragent" -s $result -m MKCOL $path/joe/ -r 201 > $log 2>&1
+count
+
+# 2
+deb "propfind principal /"
+$cli -v -u "$user" -A "$useragent" -s $result -m PROPFIND -T propfind_principal.xml \
+ -c application/xml -X "Depth: 0" $path/joe/ -r 207 > $log 2>&1
+count
+
+# 3
+deb "set ACL joe/"
+$cli -v -u "$user" -A "$useragent" -s $result -m ACL -T acl-col-admin.xml $path/joe/ -r 201 > $log 2>&1
+count
+
+# 4
+deb "Create a principal self"
+$cli -v -u "$user" -A "$useragent" -s $result -m PUT -T principal $path/joe/self -r 201 > $log 2>&1
+count
+
+# 5
+deb "propfind allprop joe/"
+$cli -v -u "$user" -A "$useragent" -s $result -m PROPFIND -T allprop.xml $path/joe/ \
+ -X "Depth: 1" -r 207 > $log 2>&1
+count
+
+# 6
+deb "set ACL self"
+$cli -v -u "$user" -A "$useragent" -s $result -m ACL -T acl-self-admin.xml \
+ -c application/xml $path/joe/self -r 201 > $log 2>&1
+count
+
+# 7
+deb "read a principal self"
+$cli -v -u "$user" -A "$useragent" -s $result -m GET $path/joe/self -r 200 > $log 2>&1
+count
+
+# 8
+deb "propfind principal self"
+$cli -v -u "$user" -A "$useragent" -s $result -m PROPFIND \
+ -T propfind_principal.xml -c application/xml $path/joe/self -r 207 > $log 2>&1
+count
+
+# 9
+deb "set ACL joe/ for joppe"
+$cli -v -u "$user" -A "$useragent" -s $result -m ACL -T acl-self-admin-joppe.xml -c application/xml $path/joe/ -r 200 > $log 2>&1
+count
+
+user=joe:$passwd
+
+# 10
+deb "Create a principal '1' as joe"
+$cli -v -u "$user" -A "$useragent" -s $result -m PUT -T principal $path/joe/1 -e $etag -r 201 > $log 2>&1
+count
+
+# 11
+deb "set ACL '1'"
+$cli -v -u "$user" -A "$useragent" -s $result -m ACL -T acl-self-admin.xml -c application/xml $path/joe/1 -r 201 > $log 2>&1
+count
+
+# 12
+deb "Create a principal '1' with an ETag"
+$cli -v -u "$user" -A "$useragent" -s $result -m PUT -T principal $path/joe/1 -i $retag -e $etag -r 200,204 > $log 2>&1
+count
+
+# 13
+deb "Create a principal '1', precondition error with if-none-match"
+$cli -v -u "$user" -A "$useragent" -s $result -m PUT -T principal $path/joe/1 -n $retag -r 412 > $log 2>&1
+count
+
+# 14
+deb "Create a principal '1', precondition error with if-none-match: *"
+$cli -v -u "$user" -A "$useragent" -s $result -m PUT -T principal $path/joe/1 -n "*" -r 412 > $log 2>&1
+count
+
+# 15
+deb "Create a principal '1', precondition error with wrong etag"
+$cli -v -u "$user" -A "$useragent" -s $result -m PUT -T principal $path/joe/1 -i "foo-bar" -r 412 > $log 2>&1
+count
+
+# 16
+deb "Create a new principal '2' with if-none-match: *"
+$cli -v -u "$user" -A "$useragent" -s $result -m PUT -T principal $path/joe/2 -n "*" -r 201 > $log 2>&1
+count
+
+# 17
+deb "set ACL"
+$cli -v -u "$user" -A "$useragent" -s $result -m ACL -T acl-self-admin.xml -c application/xml $path/joe/2 -r 201 > $log 2>&1
+count
+
+# 18
+deb "Try to create a principal '3' with if-match: * (fails)"
+$cli -v -u "$user" -A "$useragent" -s $result -m PUT -T principal $path/joe/3 -i "*" -r 412 > $log 2>&1
+count
+
+# 19
+deb "Create a principal 'group'"
+$cli -v -u "$user" -A "$useragent" -s $result -m PUT -T principal $path/joe/group -r 201 > $log 2>&1
+count
+
+# 20
+deb "set ACL for 'group'"
+$cli -v -u "$user" -A "$useragent" -s $result -m ACL -T acl-group.xml -c application/xml $path/joe/group -r 201 > $log 2>&1
+count
+
+# 21
+deb "Add groups uris to 'group' principal"
+$cli -v -u "$user" -A "$useragent" -s $result -m PROPPATCH -T group-member-set.xml -c application/xml $path/joe/group -r 207 > $log 2>&1
+count
+
+# 22
+deb "propfind principal"
+$cli -v -u "$user" -A "$useragent" -s $result -m PROPFIND -T propfind_group.xml $path/joe/ -X "Depth: 1" -r 207 > $log 2>&1
+count
+
+# 23
+deb "Update groups"
+$cli -v -u "$user" -A "$useragent" -s $result -m PROPPATCH -T group-member-set-one.xml -c application/xml $path/joe/group -r 207 > $log 2>&1
+count
+
+# 24
+deb "Set displayname property"
+$cli -v -u "$user" -A "$useragent" -s $result -m PROPPATCH -T set-display-name.xml -c application/xml $path/joe/group -r 207 > $log 2>&1
+count
+
+# 25
+deb "Set displayname property"
+$cli -v -u "$user" -A "$useragent" -s $result -m PROPPATCH -T set-display-name.xml -c application/xml $path/joe/1 -r 207 > $log 2>&1
+count
+
+# 26
+deb "Principal prop set"
+$cli -v -u "$user" -A "$useragent" -s $result -m REPORT -T principal-prop-set.xml -c application/xml $path/joe/ -r 207 > $log 2>&1
+count
+
+# 27
+deb "propfind principal"
+$cli -v -u "$user" -A "$useragent" -s $result -m PROPFIND -T propfind_group.xml $path/joe/ -X "Depth: 1" -r 207 > $log 2>&1
+count
+
+# 28
+deb "Search a principal"
+$cli -v -u "$user" -A "$useragent" -s $result -m REPORT -T principal-search.xml $path/ -r 207 > $log 2>&1
+count
+
+# 29
+deb "propfind allprop"
+$cli -v -u "$user" -A "$useragent" -s $result -m PROPFIND -T allprop.xml $path/joe/ -X "Depth: 1" -r 207 > $log 2>&1
+count
+
+user=joppe:$passwd
+
+# 30
+deb "Search a principal, different uid"
+$cli -v -u "$user" -A "$useragent" -s $result -m REPORT -T principal-search.xml $path/ -r 207 > $log 2>&1
+count
+
+# 31
+deb "Search a principal, 404"
+$cli -v -u "$user" -A "$useragent" -s $result -m REPORT -T principal-search-404.xml $path/ -r 404 > $log 2>&1
+count
+
+user=admin:$passwd
+
+# 32
+deb "Update groups"
+$cli -v -u "$user" -A "$useragent" -s $result -m PROPPATCH -T group-member-set-one.xml $path/joe/group -r 403 > $log 2>&1
+count
+
+# 33
+deb "Create a principal collection"
+$cli -v -u "$user" -A "$useragent" -s $result -m MKCOL $path/joppe/ -r 201 > $log 2>&1
+count
+
+# 34
+deb "Create a principal"
+$cli -v -u "$user" -A "$useragent" -s $result -m PUT -T principal $path/joppe/self -r 201 > $log 2>&1
+count
+
+path=$uri/acltests
+
+# 35
+deb "Put a test file"
+$cli -v -u "$user" -A "$useragent" -s $result -m PUT -T propfind_joppe.xml $path/test.xml -r 201 > $log 2>&1
+count
+
+# 36
+deb "set ACL"
+$cli -v -u "$user" -A "$useragent" -s $result -m ACL -T set_acl.xml $path/test.xml -r 201 > $log 2>&1
+count
+
+user=joppe:$passwd
+
+# 37
+deb "propfind allprop"
+$cli -v -u "$user" -A "$useragent" -s $result -m PROPFIND -T allprop.xml $uri/principals/joe/ -X "Depth: 1" -r 207 > $log 2>&1
+count
+
+# 38
+deb "propfind named props"
+$cli -v -u "$user" -A "$useragent" -s $result -m PROPFIND -T named_prop.xml $uri/principals/joe/ -X "Depth: 1" -r 207 > $log 2>&1
+count
+
+# 39
+deb "propfind joppe"
+$cli -v -u "$user" -A "$useragent" -s $result -m PROPFIND -T propfind_joppe.xml $path/test.xml -r 207 > $log 2>&1
+count
+
+user=admin:$passwd
+
+# 40
+deb "Search all principals"
+$cli -v -u "$user" -A "$useragent" -s $result -m REPORT -T principal-search-all.xml $uri/principals/ -r 207 > $log 2>&1
+count
+
+# 41
+deb "options"
+$cli -v -u "$user" -A "$useragent" -s $result -m OPTIONS $path/ -r 200 > $log 2>&1
+count
+
+# 42
+deb "Delete a resource"
+$cli -v -u "$user" -A "$useragent" -s $result -m DELETE $path/test.xml -r 200,204 > $log 2>&1
+count
+
+# 43
+path=$uri/principals
+deb "Delete joppe principal"
+$cli -v -u "$user" -A "$useragent" -s $result -m DELETE $path/joppe/ -r 200,204 > $log 2>&1
+count
+
+# 44
+deb "Delete joe principal"
+$cli -v -u "$user" -A "$useragent" -s $result -m DELETE $path/joe/ -r 200,204 > $log 2>&1
+count
+
+done # for loop
+done # for loop

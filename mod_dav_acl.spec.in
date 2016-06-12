@@ -1,0 +1,64 @@
+# being lazy...
+%define _unpackaged_files_terminate_build 0
+#
+Summary:   mod_dav_acl handler module
+Name:      mod_dav_acl
+Version:   @VERSION@
+Release:   1
+License:   LGPL
+Group:     System Environment/Daemons
+Source:    %{name}-%{version}.tar.gz
+BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root
+Requires:  libxml2 httpd libattr
+BuildRequires: libxml2-devel httpd-devel libattr-devel
+Prefix: %{_prefix}
+
+%prep
+%setup -q
+
+%post
+
+%build
+CFLAGS="$RPM_OPT_FLAGS" \
+./configure --prefix=%{prefix}
+make
+
+%description
+Apache module to handle dav acls == rfc3744
+
+%install
+rm -fr %{buildroot}
+
+%makeinstall
+
+%clean
+rm -fr %{buildroot}
+
+%files
+%defattr(-,root,root)
+%config(noreplace) %{_sysconfdir}/httpd/conf.d/dav_acl.conf
+%attr(0755,root,root) %{_libdir}/httpd/modules/mod_dav_acl.so*
+%doc AUTHORS ChangeLog NEWS README
+%{_bindir}/acl-principals
+%{_bindir}/acl-test-cli
+%{_bindir}/acl-xpath
+%{_libdir}/libdavacl.so.*
+
+%package devel
+Summary: Libraries, includes, etc. to develop apache dav acl modules
+Group: Development/Libraries
+BuildRequires:libxml2-devel httpd-devel libattr-devel
+Requires: mod_dav_acl
+Prefix: %{_prefix}
+
+%description devel
+
+%files devel
+%doc AUTHORS ChangeLog NEWS README httpd-2.2.6-ju.patch httpd-2.2.8-ju.patch \
+httpd-2.2.12-repos.patch httpd-2.2.12-dav.patch httpd-2.2.12-etag.patch \
+httpd-2.2.12-liveprops.patch httpd-2.2.16-ju.patch
+%{prefix}/include/httpd/*.h
+%{_libdir}/pkgconfig/*.pc
+%{_libdir}/libdavacl.so
+%{_libdir}/libdavacl.a
+

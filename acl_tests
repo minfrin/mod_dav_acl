@@ -1,0 +1,45 @@
+#!/bin/bash
+
+dir=$PWD
+src=$dir/`dirname $0`/acl_files
+un=`id -un`
+r=/tmp/acl-"$un"
+log=$r/log.txt
+cAll=0
+c=0
+cli=$dir/tools/acl-test-cli
+etag=$r/etag
+result=$r/result.txt
+
+export NO_PROXY=*
+
+rm -rf $r
+mkdir $r
+cd $r
+
+# if enabled exits the script when the first error is detected
+debug=0
+
+hostname=localhost:8080
+uri=http://"$hostname"
+# common password for admin, joppe and joe for whom the credentials must exist
+passwd=password
+
+touch $etag
+
+# run actual tests
+. $src
+
+cat $result
+rm -rf $r
+cd $dir
+
+echo "************************************"
+echo "* Summary: " $c/$cAll "tests passed"
+echo "************************************"
+if [ $c -eq $cAll ]
+then
+  exit 0
+else
+  exit 1
+fi

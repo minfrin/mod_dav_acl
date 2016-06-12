@@ -1,0 +1,520 @@
+#!/bin/bash
+
+function menu()
+{
+  echo "DAV ACL Principals Tool"
+  echo "n: Create a new principal"
+  echo "d: Remove a principal"
+  echo "l: List current principals"
+  echo "p: Dump ACL data for a principal"
+  echo "e: Create calendar for a principal"
+  echo "h: Create a home directory for a principal"
+  echo "t: List directory content"
+  echo "c: Create a directory"
+  echo "r: Delete a directory"
+  echo "m: Dump ACL data for a directory"
+  echo "s: Settings"
+  echo "a: Credentials"
+  echo "q: Quit"
+}
+
+if [[ "$1" == "-v" || "$1" == "--version" ]] ; then
+  echo "acl-principals version 0.1.9"
+  exit
+fi
+
+if [[ "$1" == "-h" || "$1" == "--help" ]] ; then
+  menu
+  exit
+fi
+
+tdir=/tmp/acl-principals-"`id -un`"
+mkdir $tdir
+pushd $tdir
+
+cat > acl-principal << EOF
+EOF
+
+cat > acl-self-admin.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<D:acl xmlns:D="DAV:">
+  <D:ace>
+    <D:principal>
+      <D:property><D:owner/></D:property>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:all/></D:privilege>
+    </D:grant>
+  </D:ace>
+  <D:ace>
+    <D:principal>
+      <D:href>LOCALHOST/principals/USERNAME/self</D:href>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:read/></D:privilege>
+      <D:privilege><D:write/></D:privilege>
+      <D:privilege><D:read-acl/></D:privilege>
+      <D:privilege><D:bind/></D:privilege>
+    </D:grant>
+  </D:ace>
+</D:acl>
+EOF
+
+cat > acl-self.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<D:acl xmlns:D="DAV:">
+  <D:ace>
+    <D:principal>
+      <D:self/>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:all/></D:privilege>
+    </D:grant>
+  </D:ace>
+  <D:ace>
+    <D:principal>
+      <D:property><D:owner/></D:property>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:all/></D:privilege>
+    </D:grant>
+  </D:ace>
+  <D:ace>
+    <D:principal>
+       <D:authenticated/>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:read/></D:privilege>
+    </D:grant>
+  </D:ace>
+</D:acl>
+EOF
+
+cat > acl-admin.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<D:acl xmlns:D="DAV:">
+  <D:ace>
+    <D:principal>
+      <D:property><D:owner/></D:property>
+    </D:principal>
+    <D:grant>
+      <D:privilege><D:all/></D:privilege>
+    </D:grant>
+  </D:ace>
+</D:acl>
+EOF
+
+cat > acl-display-name.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<propertyupdate xmlns="DAV:">
+  <set>
+    <prop>
+      <displayname>DISPLAY_NAME</displayname>
+    </prop>
+  </set>
+</propertyupdate>
+EOF
+
+cat > caldav-prop.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<propertyupdate xmlns="DAV:">
+  <set>
+    <prop>
+      <C:calendar-home-set xmlns:D="DAV:"
+             xmlns:C="urn:ietf:params:xml:ns:caldav">
+         <D:href>CALENDAR_HOME</D:href>
+      </C:calendar-home-set>
+      <C:calendar-user-address-set xmlns:D="DAV:"
+            xmlns:C="urn:ietf:params:xml:ns:caldav">
+        <D:href>CALENDAR_MAIL</D:href>
+      </C:calendar-user-address-set>
+    </prop>
+  </set>
+</propertyupdate>
+EOF
+
+cat > carddav-prop.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<propertyupdate xmlns="DAV:">
+  <set>
+    <prop>
+      <C:addressbook-home-set xmlns:D="DAV:"
+          xmlns:C="urn:ietf:params:xml:ns:carddav">
+         <D:href>CARDDAV_HOME</D:href>
+      </C:addressbook-home-set>
+    </prop>
+  </set>
+</propertyupdate>
+EOF
+
+cat > acl-principal-search-all.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<principal-property-search xmlns="DAV:">
+  <property-search>
+    <prop><displayname/></prop>
+    <match/>
+  </property-search>
+  <prop>
+    <displayname/>
+    <owner/>
+    <acl/>
+  </prop>
+</principal-property-search>
+EOF
+
+cat > acl-propfind.xml << EOF
+<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+  <D:prop>
+    <D:getetag/>
+    <D:owner/>
+    <D:acl/>
+  </D:prop>
+</D:propfind>
+EOF
+
+function run()
+{
+  if $cli -u "$user" $1 > /dev/null 2>&1 ; then
+    echo "$2" "OK"
+  else
+    echo "$2" "FAILED"
+  fi
+}
+
+function quit()
+{
+  rm -rf $tdir
+  popd
+  exit
+}
+
+function new_user()
+{
+  read -p "Give new principal username: " username
+
+  if [ -n "$username" ] ; then
+    read -p "Give the displayname of principal $username: " dispname
+
+    uri="$path/$username"
+    run "-m MKCOL -r 201 $uri/" "Create a principal collection"
+
+    sed s/USERNAME/"$username"/ <acl-self-admin.xml >acl-user.xml
+    sed -i s\\LOCALHOST\\"$hostname"\\ acl-user.xml
+
+    run "-m ACL -T acl-user.xml -c application/xml -r 201 $uri/" \
+	"SET acl for a principal collection"
+
+    run "-m PUT -T acl-principal -c application/xml -r 201 $uri/self" \
+	"Create a principal"
+
+    if [ -n "$dispname" ] ; then
+      sed s/DISPLAY_NAME/"$dispname"/ <acl-display-name.xml >acl-user-display-name.xml
+
+      run "-m PROPPATCH -T acl-user-display-name.xml -c application/xml -r 207 $uri/self" \
+	  "SET displayname for an acl user" "207"
+    fi
+
+    run "-m ACL -T acl-self.xml -c application/xml -r 201 $uri/self" \
+	"SET acl for a principal"
+  fi
+}
+
+function new_calendar()
+{
+  read -p "Give principal username: " username
+
+  if [ -n "$username" ] ; then
+    read -p "Give mail address: " mail
+
+    if [ -n "$mail" ] ; then
+
+      uri="$hostname/caldav/$username/"
+      run "-m MKCALENDAR -r 201 $uri/" "Create a principal caldav collection"
+
+      sed s\\DISPLAY_NAME\\"$username calendar"\\ <acl-display-name.xml >acl-user-display-name.xml
+
+      run "-m PROPPATCH -T acl-user-display-name.xml -c application/xml -r 207 $uri" \
+	  "SET displayname for a calendar" "207"
+
+      sed s/USERNAME/"$username"/ <acl-self-admin.xml >acl-user.xml
+      sed -i s\\LOCALHOST\\"$hostname"\\ acl-user.xml
+
+      run "-m ACL -T acl-user.xml -c application/xml -r 201 $uri" \
+	"SET acl for a caldav collection"
+
+      sed s\\CALENDAR_HOME\\"$uri"\\ <caldav-prop.xml >caldav-home.xml
+      sed -i s\\CALENDAR_MAIL\\"mailto:$mail"\\ caldav-home.xml
+
+      run "-m PROPPATCH -T caldav-home.xml -c application/xml -r 207 $path/$username/self" \
+	  "SET caldav props for a principal" "207"
+    fi
+  fi
+}
+
+function new_carddav()
+{
+  read -p "Give principal username: " username
+
+  if [ -n "$username" ] ; then
+    read -p "Give mail address: " mail
+
+    if [ -n "$mail" ] ; then
+
+      uri="$hostname/carddav/$username/"
+      run "-m MKCOL -r 201 $uri/" "Create a principal caldav collection"
+
+      sed s/USERNAME/"$username"/ <acl-self-admin.xml >acl-user.xml
+      sed -i s\\LOCALHOST\\"$hostname"\\ acl-user.xml
+
+      run "-m ACL -T acl-user.xml -c application/xml -r 201 $uri" \
+	"SET acl for a carddav collection"
+
+      sed s\\CARDDAV_HOME\\"$uri"\\ <carddav-prop.xml >carddav-home.xml
+
+      run "-m PROPPATCH -T carddav-home.xml -c application/xml -r 207 $path/$username/self" \
+	  "SET carddav props for a principal" "207"
+    fi
+  fi
+}
+
+function new_home()
+{
+  read -p "Creating homedir into $hostname/$homedir/" username
+
+  if [ -n "$username" ] ; then
+    uri="$hostname/$homedir/$username/"
+
+    run "-m MKCOL -r 201 $uri" "Create a home directory"
+
+    sed s/USERNAME/"$username"/ <acl-self-admin.xml >acl-user.xml
+    sed -i s\\LOCALHOST\\"$hostname"\\ acl-user.xml
+
+    run "-m ACL -T acl-user.xml -c application/xml -r 201 $uri" \
+	"SET acl for a principal home collection"
+  fi
+}
+
+function del_user()
+{
+  read -p "Give the username to be removed: " username
+
+  if [ -n "$username" ] ; then
+    run "-m DELETE -r 200,204 $path/$username/" "Delete a principal"
+  fi
+}
+
+function create_dir()
+{
+  read -p "Give the directory name to be created $hostname/" name
+
+  if [ -n "$name" ] ; then
+    uri="$hostname/$name/"
+
+    run "-m MKCOL -r 201 $uri" "Create a directory"
+
+    run "-m ACL -T acl-admin.xml -c application/xml -r 201 $uri" \
+	"SET acl for a collection"
+  fi
+}
+
+function remove_dir()
+{
+  read -p "Give the directory name to be removed $hostname/" name
+
+  if [ -n "$name" ] ; then
+    run "-m DELETE -r 200,204 $hostname/$name/" "Delete a collection"
+  fi
+}
+
+function list_dir()
+{
+  read -p "Give the directory name to be listed $hostname/" name
+
+  if [ -n "$name" ] ; then
+    uri="$hostname/$name/"
+  else
+    uri="$hostname/"
+  fi
+
+  $cli -v -u $user -m "PROPFIND" -T "acl-propfind.xml" \
+       -r 207,404 -o "acl-report.xml" -X "Depth: 1" -t "acl-status-code" "$uri" \
+        > /dev/null 2>&1
+
+  if [ "$?" -eq "0" ] ; then
+    read status_code <"acl-status-code"
+
+    if [ "$status_code" -eq "207" ] ; then
+      echo "<$uri>:"
+
+      cond="[contains(../../../d:status/text(), '20')]"
+      $xpath -d "acl-report.xml" -e "/d:multistatus/d:response/d:href/text()" \
+	-s "../../d:propstat/d:prop/d:owner/text()$cond|../../d:propstat/d:prop/d:getetag/text()$cond" \
+	-n "d=DAV:"
+    else
+      echo "no existing directory"
+    fi
+  else
+    echo "FAILED"
+  fi
+}
+
+function list_dir_acl()
+{
+  read -p "Give the directory name for the ACLs to be listed $hostname/" name
+
+  if [ -n "$name" ] ; then
+    uri=$hostname/$name/
+  else
+    uri=$hostname/
+  fi
+  $cli -v -u $user -m "PROPFIND" -T "acl-propfind.xml" \
+       -r 207,404 -o "acl-report.xml" -X "Depth: 1" -t "acl-status-code" "$uri" \
+        > /dev/null 2>&1
+
+  if [ "$?" -eq "0" ] ; then
+    read status_code <"acl-status-code"
+
+    if [ "$status_code" -eq "207" ] ; then
+      echo "<$uri>:"
+
+      cond="[contains(../../d:status/text(), '20')]"
+      $xpath -d "acl-report.xml" -e "/d:multistatus/d:response/d:href/text()" \
+	-s "../../d:propstat/d:prop/d:acl$cond" -n "d=DAV:"
+    else
+      echo "no existing ACLs"
+    fi
+  else
+    echo "FAILED"
+  fi
+}
+
+function dump_acl()
+{
+  read -p "Give the username whose ACLs are queried: " username
+
+  if [ -n "$username" ] ; then
+    $cli -v -u $user -m "REPORT" -T "acl-principal-search-all.xml" \
+	-r 207,404 -o "acl-report.xml" -t "acl-status-code" "$path/$username/" > \
+	/dev/null 2>&1
+
+    if [ "$?" -eq "0" ] ; then
+      read status_code <"acl-status-code"
+
+      if [ "$status_code" -eq "207" ] ; then
+	cond="[contains(../../d:status/text(), '20')]"
+
+	$xpath -d "acl-report.xml" \
+	-e "/d:multistatus/d:response/d:propstat/d:prop/d:acl$cond" -n "d=DAV:"
+      else
+	echo "No ACL data"
+      fi
+    else
+      echo "FAILED"
+    fi
+  fi
+}
+
+function list_user()
+{
+  echo "List of current principals"
+
+  $cli -v -u $user -m "REPORT" -T "acl-principal-search-all.xml" \
+	-r 207,404 -o "acl-report.xml" -t "acl-status-code" "$path/" > \
+	/dev/null 2>&1
+
+  if [ "$?" -eq "0" ] ; then
+    read status_code <"acl-status-code"
+
+    if [ "$status_code" -eq "207" ] ; then
+      echo "uri, display_name, owner:"
+
+      cond="[contains(../../../d:status/text(), '20')]"
+      $xpath -d "acl-report.xml" -e "/d:multistatus/d:response/d:href/text()" \
+	-s "../../d:propstat/d:prop/d:owner/text()$cond|../../d:propstat/d:prop/d:displayname/text()$cond" \
+	-n "d=DAV:"
+    else
+      echo "no existing principals"
+    fi
+  else
+    echo "FAILED"
+  fi
+}
+
+function host_name()
+{
+  read -p "Give the hostname part for principal URIs ($hostname): " temp
+  if [ "$temp" != "" ] ; then
+    hostname=$temp
+  fi
+
+  path=$hostname/principals
+
+  read -p "Give the new home directory for users at ($hostname/[$homedir]): " temp
+  if [ "$temp" != "" ] ; then
+    homedir=$temp
+  fi
+  dump
+}
+
+function credentials()
+{
+  read -p "Give the administrator username ($admin): " temp
+  if [ "$temp" != "" ] ; then
+    admin=$temp
+  fi
+  stty -echo
+  read -p "Give the administrator password (xxxxx): " temp ; echo
+  stty echo
+  if [ "$temp" != "" ] ; then
+    password=$temp
+  fi
+  user=$admin:$password
+  dump
+}
+
+function dump()
+{
+  echo "The hostname part of an ACL usage is: $hostname"
+  path=$hostname/principals
+  echo "Principal path is: $path"
+  echo "Home directory is: $hostname/$homedir"
+  echo "CalDAV directory is: $hostname/caldav/[user]"
+  echo "CardDAV directory is: $hostname/carddav/[user]"
+  user=$admin:$password
+  echo "Administrator is: $admin"
+}
+
+
+#some parameters that you'd likely change...
+cli="acl-test-cli"
+xpath="acl-xpath"
+hostname="http://localhost:8080"
+admin="admin"
+password=""
+homedir="home"
+
+dump
+
+while true
+do
+  menu
+
+  read com
+
+  case "$com" in
+  c) create_dir ;;
+  r) remove_dir ;;
+  n) new_user ;;
+  e) new_calendar ;;
+  d) del_user ;;
+  l) list_user ;;
+  p) dump_acl ;;
+  m) list_dir_acl ;;
+  h) new_home ;;
+  s) host_name ;;
+  t) list_dir ;;
+  a) credentials ;;
+  q) quit ;;
+  esac
+done

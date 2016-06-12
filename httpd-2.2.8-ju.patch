@@ -1,0 +1,971 @@
+diff -Naur httpd-2.2.8/modules/dav/fs/repos.c httpd-2.2.8-ju/modules/dav/fs/repos.c
+--- httpd-2.2.8/modules/dav/fs/repos.c	2008-06-04 10:53:04.000000000 +0300
++++ httpd-2.2.8-ju/modules/dav/fs/repos.c	2008-07-02 10:17:47.000000000 +0300
+@@ -46,6 +46,7 @@
+     apr_pool_t *pool;        /* memory storage pool associated with request */
+     const char *pathname;   /* full pathname to resource */
+     apr_finfo_t finfo;       /* filesystem info */
++    request_rec *r;
+ };
+ 
+ /* private context for doing a filesystem walk */
+@@ -200,6 +201,11 @@
+ **
+ ** PRIVATE REPOSITORY FUNCTIONS
+ */
++request_rec *dav_fs_get_request_rec(const dav_resource *resource)
++{
++    return resource->info->r;
++}
++
+ apr_pool_t *dav_fs_pool(const dav_resource *resource)
+ {
+     return resource->info->pool;
+@@ -638,6 +644,7 @@
+     /* Create private resource context descriptor */
+     ctx = apr_pcalloc(r->pool, sizeof(*ctx));
+     ctx->finfo = r->finfo;
++    ctx->r = r;
+ 
+     /* ### this should go away */
+     ctx->pool = r->pool;
+@@ -1775,17 +1782,13 @@
+ 
+     if (!resource->exists)
+         return apr_pstrdup(ctx->pool, "");
++    {
++      	request_rec *r = ctx->r;
+ 
+-    if (ctx->finfo.filetype != 0) {
+-        return apr_psprintf(ctx->pool, "\"%" APR_UINT64_T_HEX_FMT "-%"
+-                            APR_UINT64_T_HEX_FMT "-%" APR_UINT64_T_HEX_FMT "\"",
+-                            (apr_uint64_t) ctx->finfo.inode,
+-                            (apr_uint64_t) ctx->finfo.size,
+-                            (apr_uint64_t) ctx->finfo.mtime);
+-    }
+-
+-    return apr_psprintf(ctx->pool, "\"%" APR_UINT64_T_HEX_FMT "\"",
+-                       (apr_uint64_t) ctx->finfo.mtime);
++	r->mtime = ctx->finfo.mtime;
++        r->finfo = ctx->finfo;
++      	return ap_make_etag(r, 0);
++    } 	
+ }
+ 
+ static const dav_hooks_repository dav_hooks_repository_fs =
+@@ -1812,6 +1815,9 @@
+     dav_fs_remove_resource,
+     dav_fs_walk,
+     dav_fs_getetag,
++    dav_fs_get_request_rec,
++    dav_fs_pathname,
++    NULL
+ };
+ 
+ static dav_prop_insert dav_fs_insert_prop(const dav_resource *resource,
+diff -Naur httpd-2.2.8/modules/dav/main/mod_dav.c httpd-2.2.8-ju/modules/dav/main/mod_dav.c
+--- httpd-2.2.8/modules/dav/main/mod_dav.c	2008-06-04 10:53:04.000000000 +0300
++++ httpd-2.2.8-ju/modules/dav/main/mod_dav.c	2008-07-02 10:24:09.000000000 +0300
+@@ -57,6 +57,8 @@
+ #include "http_request.h"
+ #include "util_script.h"
+ 
++#include "ap_provider.h"
++
+ #include "mod_dav.h"
+ 
+ 
+@@ -79,6 +81,8 @@
+     const char *dir;
+     int locktimeout;
+     int allow_depthinfinity;
++    int acl_checking;
++    int etag_response;  
+ 
+ } dav_dir_conf;
+ 
+@@ -195,10 +199,18 @@
+     newconf->dir = DAV_INHERIT_VALUE(parent, child, dir);
+     newconf->allow_depthinfinity = DAV_INHERIT_VALUE(parent, child,
+                                                      allow_depthinfinity);
++    newconf->acl_checking = DAV_INHERIT_VALUE(parent, child, acl_checking);
++    newconf->etag_response = DAV_INHERIT_VALUE(parent, child, etag_response);
+ 
+     return newconf;
+ }
+ 
++DAV_DECLARE(const char *) dav_get_provider_name(request_rec *r)
++{
++    dav_dir_conf *conf = ap_get_module_config(r->per_dir_config, &dav_module);
++    return conf ? conf->provider_name : NULL;
++}
++
+ static const dav_provider *dav_get_provider(request_rec *r)
+ {
+     dav_dir_conf *conf;
+@@ -287,6 +299,30 @@
+ }
+ 
+ /*
++ * Command handler for the DAVACL directive, which is FLAG.
++ */
++static const char *dav_cmd_acl_checking(cmd_parms *cmd, void *config,
++                                         int arg)
++{
++    dav_dir_conf *conf = (dav_dir_conf *)config;
++
++    conf->acl_checking = arg;
++    return NULL;
++}
++
++/*
++ * Command handler for the DAVETagResponse directive, which is FLAG.
++ */
++static const char *dav_cmd_etag_response(cmd_parms *cmd, void *config,
++                                         int arg)
++{
++    dav_dir_conf *conf = (dav_dir_conf *)config;
++
++    conf->etag_response = arg;
++    return NULL;
++}
++
++/*
+  * Command handler for DAVMinTimeout directive, which is TAKE1
+  */
+ static const char *dav_cmd_davmintimeout(cmd_parms *cmd, void *config,
+@@ -361,18 +397,35 @@
+         ap_rputs(" xmlns:m=\"http://apache.org/dav/xmlns\"", r);
+     }
+ 
+-    if (err->namespace != NULL) {
+-        ap_rprintf(r,
+-                   " xmlns:C=\"%s\">" DEBUG_CR
+-                   "<C:%s/>" DEBUG_CR,
+-                   err->namespace, err->tagname);
+-    }
++    if (err->childtags) {
++        if (err->namespace != NULL) {
++            ap_rprintf(r,
++                       " xmlns:C=\"%s\">" DEBUG_CR
++                       "<C:%s>%s</C:%s>" DEBUG_CR,
++                        err->namespace, 
++                        err->tagname, err->childtags, err->tagname);
++        }
++        else {
++            ap_rprintf(r,
++                       ">" DEBUG_CR
++                       "<D:%s>%s<D:%s>" DEBUG_CR, 
++                       err->tagname, err->childtags, err->tagname);
++                        
++        }
++    } 
+     else {
+-        ap_rprintf(r,
+-                   ">" DEBUG_CR
+-                   "<D:%s/>" DEBUG_CR, err->tagname);
++        if (err->namespace != NULL) {
++            ap_rprintf(r,
++                       " xmlns:C=\"%s\">" DEBUG_CR
++                       "<C:%s/>" DEBUG_CR,
++                       err->namespace, err->tagname);
++        }
++        else {
++            ap_rprintf(r,
++                       ">" DEBUG_CR
++                       "<D:%s/>" DEBUG_CR, err->tagname);
++        }
+     }
+-
+     /* here's our mod_dav specific tag: */
+     if (err->desc != NULL) {
+         ap_rprintf(r,
+@@ -423,7 +476,7 @@
+    [Presumably the <multistatus> tag has already been written;  this
+    routine is shared by dav_send_multistatus and dav_stream_response.]
+ */
+-static void dav_send_one_response(dav_response *response,
++void dav_send_one_response(dav_response *response,
+                                   apr_bucket_brigade *bb,
+                                   ap_filter_t *output,
+                                   apr_pool_t *pool)
+@@ -485,9 +538,9 @@
+    response and write <multistatus> tag into BB, destined for
+    R->output_filters.  Use xml NAMESPACES in initial tag, if
+    non-NULL. */
+-static void dav_begin_multistatus(apr_bucket_brigade *bb,
+-                                  request_rec *r, int status,
+-                                  apr_array_header_t *namespaces)
++void dav_begin_multistatus(apr_bucket_brigade *bb,
++                           request_rec *r, int status,
++                           apr_array_header_t *namespaces)
+ {
+     /* Set the correct status and Content-Type */
+     r->status = status;
+@@ -510,8 +563,8 @@
+ }
+ 
+ /* Finish a multistatus response started by dav_begin_multistatus: */
+-static apr_status_t dav_finish_multistatus(request_rec *r,
+-                                           apr_bucket_brigade *bb)
++apr_status_t dav_finish_multistatus(request_rec *r,
++                                    apr_bucket_brigade *bb)
+ {
+     apr_bucket *b;
+ 
+@@ -525,9 +578,9 @@
+     return ap_pass_brigade(r->output_filters, bb);
+ }
+ 
+-static void dav_send_multistatus(request_rec *r, int status,
+-                                 dav_response *first,
+-                                 apr_array_header_t *namespaces)
++void dav_send_multistatus(request_rec *r, int status,
++                          dav_response *first,
++                          apr_array_header_t *namespaces)
+ {
+     apr_pool_t *subpool;
+     apr_bucket_brigade *bb = apr_brigade_create(r->pool,
+@@ -587,8 +640,8 @@
+  *   - repos_hooks->copy_resource
+  *   - vsn_hooks->update
+  */
+-static int dav_handle_err(request_rec *r, dav_error *err,
+-                          dav_response *response)
++int dav_handle_err(request_rec *r, dav_error *err,
++                   dav_response *response)
+ {
+     /* log the errors */
+     dav_log_err(r, err, APLOG_ERR);
+@@ -621,11 +674,25 @@
+                        int replaced)
+ {
+     const char *body;
++    dav_dir_conf *conf;
+ 
+     if (locn == NULL) {
+         locn = r->uri;
+     }
+ 
++    /* ### insert an ETag header? see HTTP/1.1 S10.2.2 */
++    conf = ap_get_module_config(r->per_dir_config, &dav_module);
++
++    /* added ETag response ... vlv disabled as well ! */
++    if (conf->etag_response) {
++        char *vlv = r->vlist_validator;
++	r->vlist_validator = NULL;
++        apr_stat(&r->finfo, r->filename, APR_FINFO_MIN, r->pool);
++	r->mtime = r->finfo.mtime;
++   	ap_set_etag(r);
++	r->vlist_validator = vlv;
++    }   
++
+     /* did the target resource already exist? */
+     if (replaced) {
+         /* Apache will supply a default message */
+@@ -634,12 +701,10 @@
+ 
+     /* Per HTTP/1.1, S10.2.2: add a Location header to contain the
+      * URI that was created. */
+-
++    
+     /* Convert locn to an absolute URI, and return in Location header */
+     apr_table_setn(r->headers_out, "Location", ap_construct_url(r->pool, locn, r));
+ 
+-    /* ### insert an ETag header? see HTTP/1.1 S10.2.2 */
+-
+     /* Apache doesn't allow us to set a variable body for HTTP_CREATED, so
+      * we must manufacture the entire response. */
+     body = apr_psprintf(r->pool, "%s %s has been created.",
+@@ -647,6 +712,7 @@
+     return dav_error_response(r, HTTP_CREATED, body);
+ }
+ 
++
+ /* ### move to dav_util? */
+ DAV_DECLARE(int) dav_get_depth(request_rec *r, int def_depth)
+ {
+@@ -711,7 +777,7 @@
+     dav_dir_conf *conf;
+     const char *label = NULL;
+     dav_error *err;
+-
++  
+     /* if the request target can be overridden, get any target selector */
+     if (label_allowed) {
+         label = apr_table_get(r->headers_in, "label");
+@@ -745,6 +811,12 @@
+      * add it now */
+     dav_add_vary_header(r, r, *res_p);
+ 
++    /* if acls checking -> check if allowed method excluding propfind */
++    if (conf->acl_checking &&
++        ((*res_p)->acl_hooks = dav_get_acl_hooks()) && 
++        (err = (*res_p)->acl_hooks->acl_check_method(r, *res_p)))
++      return err;  
++
+     return NULL;
+ }
+ 
+@@ -1092,11 +1164,16 @@
+             return dav_handle_err(r, err, NULL);
+         }
+     }
+-
++ 
+     /* NOTE: WebDAV spec, S8.7.1 states properties should be unaffected */
+ 
+     /* return an appropriate response (HTTP_CREATED or HTTP_NO_CONTENT) */
+-    return dav_created(r, NULL, "Resource", resource_state == DAV_RESOURCE_EXISTS);
++    int rc = dav_created(r, NULL, "Resource", resource_state == DAV_RESOURCE_EXISTS);
++
++    if (resource->acl_hooks)
++        resource->acl_hooks->acl_post_processing(r, resource, r->status == HTTP_CREATED);
++        
++    return rc;    
+ }
+ 
+ 
+@@ -1245,6 +1322,9 @@
+         dav_log_err(r, err, APLOG_WARNING);
+     }
+ 
++    if (resource->acl_hooks)
++        resource->acl_hooks->acl_post_processing(r, resource, 0);
++
+     /* ### HTTP_NO_CONTENT if no body, HTTP_OK if there is a body (some day) */
+ 
+     /* Apache will supply a default error for this. */
+@@ -1609,6 +1689,27 @@
+     if (binding_hooks != NULL)
+         dav_level = apr_pstrcat(r->pool, dav_level, ",bindings", NULL);
+ 
++    { /* DAV header additions registered by external modules */
++        int i;
++        apr_array_header_t *extensions = 
++            ap_list_provider_names(r->pool, DAV_OPTIONS_EXTENSION_GROUP, "0");
++        ap_list_provider_names_t *entry = 
++            (ap_list_provider_names_t *)extensions->elts;
++
++        for (i = 0; i < extensions->nelts; i++, entry++) {
++            const dav_hooks_options *options = 
++                dav_get_options_hooks(entry->provider_name);
++
++            if (options && options->dav_header) {
++                apr_text_header hoptions = { 0 };
++              
++                options->dav_header(r, resource, &hoptions);
++                for (t = hoptions.first; t && t->text; t = t->next)
++                    dav_level = apr_pstrcat(r->pool, dav_level, ",", t->text, NULL);
++            }   
++        }
++    }
++
+     /* ###
+      * MSFT Web Folders chokes if length of DAV header value > 63 characters!
+      * To workaround that, we use separate DAV headers for versioning and
+@@ -1670,7 +1771,7 @@
+         apr_table_addn(methods, "COPY", "");
+         apr_table_addn(methods, "MOVE", "");
+ 
+-        if (!resource->collection)
++    /*    if (!resource->collection)  */
+             apr_table_addn(methods, "PUT", "");
+ 
+         if (locks_hooks != NULL) {
+@@ -1752,6 +1853,27 @@
+         apr_table_addn(methods, "SEARCH", "");
+     }
+ 
++    { /* additional methods registered by external modules */
++        int i;
++        apr_array_header_t *extensions = 
++            ap_list_provider_names(r->pool, DAV_OPTIONS_EXTENSION_GROUP, "0");
++        ap_list_provider_names_t *entry = 
++            (ap_list_provider_names_t *)extensions->elts;
++
++        for (i = 0; i < extensions->nelts; i++, entry++) {
++            const dav_hooks_options *options = 
++                dav_get_options_hooks(entry->provider_name);
++
++            if (options && options->dav_method) {
++                apr_text_header hoptions = { 0 };
++              
++                options->dav_method(r, resource, &hoptions);
++                for (t = hoptions.first; t && t->text; t = t->next)
++                    apr_table_addn(methods, t->text, "");
++            }    
++        }
++    }
++
+     /* Generate the Allow header */
+     arr = apr_table_elts(methods);
+     elts = (const apr_table_entry_t *)arr->elts;
+@@ -2023,7 +2145,12 @@
+                       "the required child elements (the specific command).");
+         return HTTP_BAD_REQUEST;
+     }
+-
++    if (resource->acl_hooks &&
++        (ctx.propfind_type == DAV_PROPFIND_IS_PROPNAME || 
++         ctx.propfind_type == DAV_PROPFIND_IS_ALLPROP) &&
++         (err = resource->acl_hooks->acl_check_read(r, resource)))
++        return dav_handle_err(r, err, NULL);
++   
+     ctx.w.walk_type = DAV_WALKTYPE_NORMAL | DAV_WALKTYPE_AUTH;
+     ctx.w.func = dav_propfind_walker;
+     ctx.w.walk_ctx = &ctx;
+@@ -2088,8 +2215,8 @@
+     return DONE;
+ }
+ 
+-static apr_text * dav_failed_proppatch(apr_pool_t *p,
+-                                      apr_array_header_t *prop_ctx)
++apr_text * dav_failed_proppatch(apr_pool_t *p,
++                                apr_array_header_t *prop_ctx)
+ {
+     apr_text_header hdr = { 0 };
+     int i = prop_ctx->nelts;
+@@ -2149,7 +2276,7 @@
+     return hdr.first;
+ }
+ 
+-static apr_text * dav_success_proppatch(apr_pool_t *p, apr_array_header_t *prop_ctx)
++apr_text * dav_success_proppatch(apr_pool_t *p, apr_array_header_t *prop_ctx)
+ {
+     apr_text_header hdr = { 0 };
+     int i = prop_ctx->nelts;
+@@ -2370,6 +2497,9 @@
+ 
+     dav_send_multistatus(r, HTTP_MULTI_STATUS, &resp, doc->namespaces);
+ 
++    if (resource->acl_hooks)
++        resource->acl_hooks->acl_post_processing(r, resource, 0);
++
+     /* the response has been sent. */
+     return DONE;
+ }
+@@ -2546,8 +2676,14 @@
+         }
+     }
+ 
++
+     /* return an appropriate response (HTTP_CREATED) */
+-    return dav_created(r, NULL, "Collection", 0);
++    int rc = dav_created(r, NULL, "Collection", 0);
++
++    if (resource->acl_hooks)
++        resource->acl_hooks->acl_post_processing(r, resource, r->status == 201);
++
++    return rc; 
+ }
+ 
+ /* handle the COPY and MOVE methods */
+@@ -2949,9 +3085,16 @@
+         }
+     }
+ 
++
+     /* return an appropriate response (HTTP_CREATED or HTTP_NO_CONTENT) */
+-    return dav_created(r, lookup.rnew->uri, "Destination",
+-                       resnew_state == DAV_RESOURCE_EXISTS);
++    int rc = dav_created(r, lookup.rnew->uri, "Destination",
++                         resnew_state == DAV_RESOURCE_EXISTS);
++
++    if (resource->acl_hooks)
++        resource->acl_hooks->acl_post_processing(r, is_move ? resource : resnew, 
++                                                 r->status == 201);
++        
++    return rc;
+ }
+ 
+ /* dav_method_lock:  Handler to implement the DAV LOCK method
+@@ -4816,6 +4959,16 @@
+                  ACCESS_CONF|RSRC_CONF,
+                  "allow Depth infinity PROPFIND requests"),
+ 
++    /* per directory/location, or per server */
++    AP_INIT_FLAG("DAVETagResponse", dav_cmd_etag_response, NULL,
++                 ACCESS_CONF|RSRC_CONF,
++                 "response with ETag for dav_created"),
++
++    /* per directory/location, or per server */
++    AP_INIT_FLAG("DAVACL", dav_cmd_acl_checking, NULL,
++                 ACCESS_CONF|RSRC_CONF,
++                 "Access Control List as per rfc3744"),
++
+     { NULL }
+ };
+ 
+diff -Naur httpd-2.2.8/modules/dav/main/mod_dav.h httpd-2.2.8-ju/modules/dav/main/mod_dav.h
+--- httpd-2.2.8/modules/dav/main/mod_dav.h	2007-01-15 15:01:50.000000000 +0200
++++ httpd-2.2.8-ju/modules/dav/main/mod_dav.h	2008-07-01 19:56:18.000000000 +0300
+@@ -46,7 +46,7 @@
+ #define DAV_VERSION             AP_SERVER_BASEREVISION
+ 
+ #define DAV_XML_HEADER          "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+-#define DAV_XML_CONTENT_TYPE    "text/xml; charset=\"utf-8\""
++#define DAV_XML_CONTENT_TYPE     "application/xml; charset=\"utf-8\""
+ 
+ #define DAV_READ_BLOCKSIZE      2048    /* used for reading input blocks */
+ 
+@@ -128,10 +128,13 @@
+     const char *namespace;      /* [optional] namespace of error */
+     const char *tagname;        /* name of error-tag */
+ 
++    const char *childtags;      /* error-tag may have children */
++
+     struct dav_error *prev;     /* previous error (in stack) */
+ 
+ } dav_error;
+ 
++
+ /*
+ ** Create a new error structure. save_errno will be filled with the current
+ ** errno value.
+@@ -349,6 +352,10 @@
+ **     baselined  = 0
+ **     working    = 0
+ */
++
++typedef struct dav_hooks_acl dav_hooks_acl;
++
++
+ typedef struct dav_resource {
+     dav_resource_type type;
+ 
+@@ -381,6 +388,11 @@
+        long as the dav_resource structure. */
+     apr_pool_t *pool;
+ 
++                         /* acl hooks */
++    const dav_hooks_acl *acl_hooks;
++
++    void *ctx;  /* additional parameter */  
++    
+ } dav_resource;
+ 
+ /*
+@@ -648,6 +660,8 @@
+                                         const dav_provider *hooks);
+ DAV_DECLARE(const dav_provider *) dav_lookup_provider(const char *name);
+ 
++DAV_DECLARE(const char *) dav_get_provider_name(request_rec *r);
++
+ 
+ /* ### deprecated */
+ #define DAV_GET_HOOKS_PROPDB(r)         dav_get_propdb_hooks(r)
+@@ -1935,6 +1949,12 @@
+     /* Get the entity tag for a resource */
+     const char * (*getetag)(const dav_resource *resource);
+ 
++    /* return request record */
++    request_rec * (*get_request_rec)(const dav_resource *resource);
++
++    /* return path */
++    const char * (*get_pathname)(const dav_resource *resource);
++
+     /*
+     ** If a provider needs a context to associate with this hooks structure,
+     ** then this field may be used. In most cases, it will just be NULL.
+@@ -2419,6 +2439,106 @@
+     const dav_hooks_liveprop *provider;  /* the provider defining this prop */
+ } dav_elem_private;    
+ 
++
++/* --------------------------------------------------------------------
++**
++** DAV ACL HOOKS
++*/
++
++struct dav_hooks_acl
++{
++    dav_error * (*acl_check_method)(request_rec *r,
++                                    const dav_resource *resource);
++
++    dav_error * (*acl_check_read)(request_rec *r,
++                                  const dav_resource *resource);
++                                    
++    dav_error * (*acl_check_prop)(request_rec *r,
++                                  const dav_resource *resource,
++                                  const dav_prop_name *name,
++                                  dav_prop_insert what);
++
++    void (*acl_post_processing)(request_rec *r,
++                                const dav_resource *resource, 
++                                int fStoreOwner);
++    void *ctx;                              
++};
++
++
++DAV_DECLARE(void) dav_acl_register_hooks(apr_pool_t *p, 
++                                         const dav_hooks_acl *acl);
++
++DAV_DECLARE(const dav_hooks_acl *) dav_get_acl_hooks();
++                                           
++/* moved some nice functions to public */
++extern void dav_begin_multistatus(apr_bucket_brigade *bb,
++                                  request_rec *r, int status,
++                                  apr_array_header_t *namespaces);
++extern void dav_send_one_response(dav_response *response,
++                                  apr_bucket_brigade *bb,
++                                  ap_filter_t *output,
++                                  apr_pool_t *pool);
++extern apr_status_t dav_finish_multistatus(request_rec *r,
++                                           apr_bucket_brigade *bb);
++extern void dav_send_multistatus(request_rec *r, int status,
++                                 dav_response *first,
++                                 apr_array_header_t *namespaces);
++extern int dav_handle_err(request_rec *r, dav_error *err,
++                          dav_response *response);
++extern apr_text * dav_failed_proppatch(apr_pool_t *p,
++                                       apr_array_header_t *prop_ctx);
++extern apr_text * dav_success_proppatch(apr_pool_t *p, apr_array_header_t *prop_ctx);
++
++
++/* --------------------------------------------------------------------
++**
++** DAV RESOURCE TYPE HOOKS
++*/
++
++typedef struct dav_hooks_resource
++{
++    int (*get_resource_type)(const dav_resource *resource, 
++                             const char **name, 
++                             const char **uri);
++                                  
++    void *ctx;                              
++} dav_hooks_resource;
++
++#define DAV_RESOURCE_GROUP "dav_resource"
++
++DAV_DECLARE(void) dav_resource_register_hooks(apr_pool_t *p, 
++                                              const char *name, 
++                                              const dav_hooks_resource *provider);
++
++DAV_DECLARE(const dav_hooks_resource *) dav_get_resource_hooks(const char *name);
++
++
++/* --------------------------------------------------------------------
++**
++** DAV OPTIONS HOOKS
++*/
++#define DAV_OPTIONS_EXTENSION_GROUP "dav_options"
++
++typedef struct dav_hooks_options
++{
++    dav_error* (*dav_header)(request_rec *r,
++                             const dav_resource *resource,
++                             apr_text_header *phdr);
++
++    dav_error* (*dav_method)(request_rec *r,
++                             const dav_resource *resource,
++                             apr_text_header *phdr);
++
++    void *ctx;                              
++} dav_hooks_options;
++
++extern DAV_DECLARE(const dav_hooks_options *) dav_get_options_hooks(const char *name);
++
++extern DAV_DECLARE(void) dav_options_register_hooks(apr_pool_t *p, 
++                                                    const char *name,
++                                                    const dav_hooks_options *provider);
++
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff -Naur httpd-2.2.8/modules/dav/main/props.c httpd-2.2.8-ju/modules/dav/main/props.c
+--- httpd-2.2.8/modules/dav/main/props.c	2007-01-15 15:01:50.000000000 +0200
++++ httpd-2.2.8-ju/modules/dav/main/props.c	2008-06-06 08:02:11.000000000 +0300
+@@ -538,7 +538,7 @@
+     propdb->ns_xlate = ns_xlate;
+ 
+     propdb->db_hooks = DAV_GET_HOOKS_PROPDB(r);
+-
++ 
+     propdb->lockdb = lockdb;
+ 
+     /* always defer actual open, to avoid expense of accessing db
+@@ -617,7 +617,14 @@
+                         found_contentlang = 1;
+                     }
+                 }
+-
++                /* check for possible acl restrictions */    
++                if (propdb->resource->acl_hooks && 
++                    propdb->resource->acl_hooks->acl_check_prop(propdb->r, 
++                                                  propdb->resource, 
++                                                  &name, 
++                                                  what)) {
++                    goto next_key;
++                }  
+                 if (what == DAV_PROP_INSERT_VALUE) {
+                     dav_error *err;
+                     int found;
+@@ -700,6 +707,7 @@
+     apr_xml_elem *elem = dav_find_child(doc->root, "prop");
+     apr_text_header hdr_good = { 0 };
+     apr_text_header hdr_bad = { 0 };
++    apr_text_header hdr_not_auth = { 0 };
+     apr_text_header hdr_ns = { 0 };
+     int have_good = 0;
+     dav_get_props_result result = { 0 };
+@@ -707,6 +715,11 @@
+     dav_xmlns_info *xi;
+     int xi_filled = 0;
+ 
++    /* check for possible acl restrictions */    
++    dav_error *err_read = propdb->resource->acl_hooks ?
++        propdb->resource->acl_hooks->acl_check_read(propdb->r, 
++                                                    propdb->resource) : NULL; 
++    
+     /* ### NOTE: we should pass in TWO buffers -- one for keys, one for
+        the marks */
+ 
+@@ -729,7 +742,7 @@
+         dav_error *err;
+         dav_prop_insert inserted;
+         dav_prop_name name;
+-
++        
+         /*
+         ** First try live property providers; if they don't handle
+         ** the property, then try looking it up in the propdb.
+@@ -746,6 +759,32 @@
+ 
+         if (priv->propid != DAV_PROPID_CORE_UNKNOWN) {
+ 
++            /* check for possible acl restrictions
++             * ask for each live prop separately (e.g. read-acl privilege) */    
++            if (propdb->resource->acl_hooks) {
++                if (elem->ns == APR_XML_NS_NONE)
++            	    name.ns = "";
++        	else
++            	    name.ns = APR_XML_GET_URI_ITEM(propdb->ns_xlate, elem->ns);
++   		name.name = elem->name;
++
++                if (propdb->resource->acl_hooks->
++                    acl_check_prop(propdb->r, propdb->resource, 
++                                              &name, 
++                                              DAV_PROP_INSERT_VALUE)) {
++                                                  
++                    if (hdr_not_auth.first == NULL) {
++                        apr_text_append(propdb->p, &hdr_not_auth,
++                                        "<D:propstat>" DEBUG_CR
++                                        "<D:prop>" DEBUG_CR);
++                    }
++                    if (!name.ns)
++                      name.ns = "";
++                    dav_output_prop_name(propdb->p, &name, xi, &hdr_not_auth);
++                    continue;
++                }
++            }
++
+             /* insert the property. returns 1 if an insertion was done. */
+             if ((err = dav_insert_liveprop(propdb, elem, DAV_PROP_INSERT_VALUE,
+                                            &hdr_good, &inserted)) != NULL) {
+@@ -783,7 +822,7 @@
+             else if (inserted == DAV_PROP_INSERT_NOTDEF) {
+                 /* nothing to do. fall thru to allow property to be handled
+                    as a dead property */
+-            }
++            } 
+ #if DAV_DEBUG
+             else {
+ #if 0
+@@ -811,6 +850,19 @@
+             name.ns = APR_XML_GET_URI_ITEM(propdb->ns_xlate, elem->ns);
+         name.name = elem->name;
+ 
++        /* check for possible acl restrictions */    
++        if (err_read) {
++            if (hdr_not_auth.first == NULL) {
++                apr_text_append(propdb->p, &hdr_not_auth,
++                                "<D:propstat>" DEBUG_CR
++                                "<D:prop>" DEBUG_CR);
++            }
++            if (!name.ns)
++              name.ns = "";
++            dav_output_prop_name(propdb->p, &name, xi, &hdr_not_auth);
++            continue;
++        }   
++
+         /* only bother to look if a database exists */
+         if (propdb->db != NULL) {
+             int found;
+@@ -874,6 +926,21 @@
+         }
+     }
+ 
++    if (hdr_not_auth.first != NULL) {
++        apr_text_append(propdb->p, &hdr_not_auth,
++                        "</D:prop>" DEBUG_CR
++                        "<D:status>HTTP/1.1 403 Forbidden</D:status>" DEBUG_CR
++                        "</D:propstat>" DEBUG_CR);
++
++        if (!have_good && !hdr_bad.first)
++            result.propstats = hdr_not_auth.first;
++        else if (hdr_bad.first != NULL)
++            hdr_bad.last->next = hdr_not_auth.first;
++        else     
++            hdr_good.last->next = hdr_not_auth.first;
++            
++    }
++
+     /* add in all the various namespaces, and return them */
+     dav_xmlns_generate(xi, &hdr_ns);
+     result.xmlns = hdr_ns.first;
+diff -Naur httpd-2.2.8/modules/dav/main/providers.c httpd-2.2.8-ju/modules/dav/main/providers.c
+--- httpd-2.2.8/modules/dav/main/providers.c	2007-01-15 15:01:50.000000000 +0200
++++ httpd-2.2.8-ju/modules/dav/main/providers.c	2008-06-06 08:02:11.000000000 +0300
+@@ -31,3 +31,41 @@
+ {
+     return ap_lookup_provider(DAV_PROVIDER_GROUP, name, "0");
+ }
++
++DAV_DECLARE(void) dav_acl_register_hooks(apr_pool_t *p, 
++                                         const dav_hooks_acl *provider)
++{
++    ap_register_provider(p, DAV_PROVIDER_GROUP, "acl", "0", provider);
++}
++
++DAV_DECLARE(const dav_hooks_acl *) dav_get_acl_hooks()
++{
++    return ap_lookup_provider(DAV_PROVIDER_GROUP, "acl", "0");
++}
++
++DAV_DECLARE(void) dav_options_register_hooks(apr_pool_t *p, 
++                                             const char *name,
++                                             const dav_hooks_options *provider)
++{
++    ap_register_provider(p, DAV_OPTIONS_EXTENSION_GROUP, name, "0", provider);
++}
++
++DAV_DECLARE(const dav_hooks_options *) dav_get_options_hooks(const char *name)
++{
++    return ap_lookup_provider(DAV_OPTIONS_EXTENSION_GROUP, name, "0");
++}
++
++DAV_DECLARE(void) dav_resource_register_hooks(apr_pool_t *p, 
++                                              const char *name, 
++                                              const dav_hooks_resource *provider)
++{
++    ap_register_provider(p, DAV_RESOURCE_GROUP, name, "0", provider);
++}
++
++DAV_DECLARE(const dav_hooks_resource *) dav_get_resource_hooks(const char *name)
++{
++    return ap_lookup_provider(DAV_RESOURCE_GROUP, name, "0");
++}
++
++
++
+diff -Naur httpd-2.2.8/modules/dav/main/std_liveprop.c httpd-2.2.8-ju/modules/dav/main/std_liveprop.c
+--- httpd-2.2.8/modules/dav/main/std_liveprop.c	2007-01-15 15:01:50.000000000 +0200
++++ httpd-2.2.8-ju/modules/dav/main/std_liveprop.c	2008-06-06 08:02:11.000000000 +0300
+@@ -17,6 +17,7 @@
+ #include "httpd.h"
+ #include "util_xml.h"
+ #include "apr_strings.h"
++#include "ap_provider.h"
+ 
+ #include "mod_dav.h"
+ 
+@@ -59,7 +60,7 @@
+                                             int propid, dav_prop_insert what,
+                                             apr_text_header *phdr)
+ {
+-    const char *value;
++    const char *value = NULL;
+     const char *s;
+     apr_pool_t *p = resource->pool;
+     const dav_liveprop_spec *info;
+@@ -68,32 +69,63 @@
+     switch (propid)
+     {
+     case DAV_PROPID_resourcetype:
++
++        { /* additional type info provided by external modules ? */
++            int i;
++
++            apr_array_header_t *extensions = 
++                ap_list_provider_names(p, DAV_RESOURCE_GROUP, "0");
++            ap_list_provider_names_t *entry = 
++                (ap_list_provider_names_t *)extensions->elts;
++
++            for (i = 0; i < extensions->nelts; i++, entry++) {
++                const dav_hooks_resource *res_hooks = 
++                    dav_get_resource_hooks(entry->provider_name);
++                const char *name = NULL, *uri = NULL;        
++          
++                if (!res_hooks || !res_hooks->get_resource_type)
++                    continue; 
++                   
++                if (!res_hooks->get_resource_type(resource, &name, &uri) &&
++  	            name) {
++
++                    if (!uri || !strcasecmp(uri, "DAV:"))
++                        value = apr_pstrcat(p, value ? value : "", 
++                                               "<D:", name, "/>", NULL);
++                    else
++                        value = apr_pstrcat(p, value ? value : "", 
++                                               "<x:", name, 
++                                               " xmlns:x=\"", uri, 
++                                               "\"/>", NULL);
++                }
++            }
++        }
+         switch (resource->type) {
+         case DAV_RESOURCE_TYPE_VERSION:
+             if (resource->baselined) {
+-                value = "<D:baseline/>";
++                value = apr_pstrcat(p, value ? value : "", "<D:baseline/>", NULL);
+                 break;
+             }
+             /* fall through */
+         case DAV_RESOURCE_TYPE_REGULAR:
+         case DAV_RESOURCE_TYPE_WORKING:
+             if (resource->collection) {
+-                value = "<D:collection/>";
++                value = apr_pstrcat(p, value ? value : "", "<D:collection/>", NULL);
+             }
+             else {
+                 /* ### should we denote lock-null resources? */
+-
+-                value = "";        /* becomes: <D:resourcetype/> */
++                if (value == NULL) 
++                    value = "";        /* becomes: <D:resourcetype/> */
+             }
+             break;
+         case DAV_RESOURCE_TYPE_HISTORY:
+-            value = "<D:version-history/>";
++            value = apr_pstrcat(p, value ? value : "", "<D:version-history/>", NULL);
+             break;
+         case DAV_RESOURCE_TYPE_WORKSPACE:
+-            value = "<D:collection/>";
++            value = apr_pstrcat(p, value ? value : "", "<D:collection/>", NULL);
+             break;
+         case DAV_RESOURCE_TYPE_ACTIVITY:
+-            value = "<D:activity/>";
++            value = apr_pstrcat(p, value ? value : "", "<D:activity/>", NULL);
+             break;
+ 
+         default:
+diff -Naur httpd-2.2.8/modules/http/http_etag.c httpd-2.2.8-ju/modules/http/http_etag.c
+--- httpd-2.2.8/modules/http/http_etag.c	2008-06-04 10:53:04.000000000 +0300
++++ httpd-2.2.8-ju/modules/http/http_etag.c	2008-06-06 08:02:11.000000000 +0300
+@@ -100,7 +100,12 @@
+      * be modified again later in the second, and the validation
+      * would be incorrect.
+      */
+-    if ((r->request_time - r->mtime > (1 * APR_USEC_PER_SEC)) &&
++    if (
++#if 0
++    imo weak etags are bogus 
++        (r->request_time - r->mtime > (1 * APR_USEC_PER_SEC)) &&
++#endif
++
+         !force_weak) {
+         weak = NULL;
+         weak_len = 0;

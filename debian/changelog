@@ -1,0 +1,65 @@
+mod-dav-acl (0.2.0) unstable; urgency=low
+
+  * added acl-xpath tool into tools directory. acl-xpath can extract individual
+    element & attribute & text node contents from result files
+  * principal REPORTs only allowed with collections
+  * lintian build cleanups
+  * added manpage for acl-test-cli, acl-principals and acl-xpath
+  * separated some common utilities into a library
+
+ -- Jari Urpalainen <jari@urpalainen.fi>  Fri, 17 Aug 2012 15:15:00 +0300
+
+mod-dav-acl (0.1.8) unstable; urgency=low
+
+  * owner stored also within eas (speedup of regular puts)
+  * removed the usage of some ugly macros
+
+ -- Jari Urpalainen <jari.urpalainen@nokia.com>  Thu, 27 Jan 2011 10:44:00 +0200
+
+mod-dav-acl (0.1.7) unstable; urgency=low
+
+  * propfind tests used wrong filename context
+  * read-acl and read-current-user-privilege-set can be aggregated into read
+    privilege with AclAggregatedCurrentUserPrivilegeSet and AclAggregatedAcl
+    options
+  * acl_prop_check only runs read-acl or read-current-user-privilege-set tests
+    depending on the above settings. propfind is based first on having read
+    privilege on the resource, and those above tests may additionally be needed.
+  * fixed 2 sizeof bugs
+
+ -- Jari Urpalainen <jari.urpalainen@nokia.com>  Wed, 12 Jan 2011 16:20:00 +0200
+
+mod-dav-acl (0.1.6) unstable; urgency=low
+
+  * extended attributes not mandatory anymore
+
+ -- Jari Urpalainen <jari.urpalainen@nokia.com>  Mon,  8 Mar 2010 16:01:00 +0200
+
+mod-dav-acl (0.1.5) unstable; urgency=low
+
+  * xml macros and other cleanups
+  * added "current-user-principal" property (rfc5397)
+  * test in configure about existing mod_dav apis (since mod_dav patching still
+    needed)
+  * Patrik Schindler noted about missing debian deps of libxattr and libcurl
+  * "current-user-privilege-set" property fixed
+
+ -- Jari Urpalainen <jari.urpalainen@nokia.com>  Mon,  1 Mar 2010 14:20:00 +0200
+
+mod-dav-acl (0.1.4-1) unstable; urgency=low
+
+  * Fixed Apache 2.2.8 patch, conf update
+
+ -- Jari Urpalainen <jari.urpalainen@nokia.com>  Tue,  1 Jul 2008 10:42:14 +0300
+
+mod-dav-acl (0.1.3-1) unstable; urgency=low
+
+  * Fixing filtering stuff.
+
+ -- Jari Urpalainen <jari.urpalainen@nokia.com>  Mon, 11 Feb 2008 10:42:14 +0200
+
+mod-dav-acl (0.1.2-1) unstable; urgency=low
+
+  * First debian release.
+
+ -- Jari Urpalainen <jari.urpalainen@nokia.com>  Fri, 19 Oct 2007 16:42:14 +0300

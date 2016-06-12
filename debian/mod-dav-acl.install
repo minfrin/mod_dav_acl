@@ -1,0 +1,7 @@
+usr/lib/apache2/modules/mod_dav_acl.so*
+etc/apache2/mods-available/dav_acl.conf
+etc/apache2/mods-available/dav_acl.load
+usr/bin/acl-principals
+usr/bin/acl-test-cli
+usr/bin/acl-xpath
+usr/lib/libdav*.so.*

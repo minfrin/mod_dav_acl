@@ -1,0 +1,4 @@
+usr/lib/pkgconfig/*.pc
+usr/include/apache2/*.h
+usr/lib/libdavacl.so
+usr/lib/libdavacl.a

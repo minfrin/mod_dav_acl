@@ -1,0 +1,1 @@
+LoadModule dav_acl_module /usr/lib/apache2/modules/mod_dav_acl.so

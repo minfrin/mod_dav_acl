@@ -1,0 +1,43 @@
+diff --git a/modules/http/http_etag.c b/modules/http/http_etag.c
+index a7d3d9c..a75fd4b 100644
+--- a/modules/http/http_etag.c
++++ b/modules/http/http_etag.c
+@@ -100,7 +100,12 @@ AP_DECLARE(char *) ap_make_etag(request_rec *r, int force_weak)
+      * be modified again later in the second, and the validation
+      * would be incorrect.
+      */
+-    if ((r->request_time - r->mtime > (1 * APR_USEC_PER_SEC)) &&
++    if (
++#if 0
++    imo weak etags are bogus
++        (r->request_time - r->mtime > (1 * APR_USEC_PER_SEC)) &&
++#endif
++
+         !force_weak) {
+         weak = NULL;
+         weak_len = 0;
+diff --git a/modules/dav/fs/repos.c b/modules/dav/fs/repos.c
+index bb19788..43ba1a9 100644
+@@ -1783,17 +1790,13 @@ static const char *dav_fs_getetag(const dav_resource *resource)
+ 
+     if (!resource->exists)
+         return apr_pstrdup(ctx->pool, "");
++    {
++      	request_rec *r = ctx->r;
+ 
+-    if (ctx->finfo.filetype != 0) {
+-        return apr_psprintf(ctx->pool, "\"%" APR_UINT64_T_HEX_FMT "-%"
+-                            APR_UINT64_T_HEX_FMT "-%" APR_UINT64_T_HEX_FMT "\"",
+-                            (apr_uint64_t) ctx->finfo.inode,
+-                            (apr_uint64_t) ctx->finfo.size,
+-                            (apr_uint64_t) ctx->finfo.mtime);
++	r->mtime = ctx->finfo.mtime;
++        r->finfo = ctx->finfo;
++      	return ap_make_etag(r, 0);
+     }
+-
+-    return apr_psprintf(ctx->pool, "\"%" APR_UINT64_T_HEX_FMT "\"",
+-                       (apr_uint64_t) ctx->finfo.mtime);
+ }
+ 
+ static const dav_hooks_repository dav_hooks_repository_fs =
