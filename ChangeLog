@@ -1,3 +1,10 @@
+
+Changes with 0.3.0
+
+  *) Correct parameters to dav_new_error() for httpd v2.4.
+     [Graham Leggett <minfrin@sharp.fm>]
+
+
 look debian/changelog about later updates
 
 02.07.2008 Jari Urpalainen (0.1.4)

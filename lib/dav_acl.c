@@ -68,7 +68,7 @@ dav_error *dav_acl_privilege_error(request_rec *r, const char *priv,
 
     va_start(va, desc);
     pch = desc ? apr_pvsprintf(r->pool, desc, va) : NULL;
-    err = dav_new_error(r->pool, HTTP_FORBIDDEN, 0, pch);
+    err = dav_new_error(r->pool, HTTP_FORBIDDEN, 0, APR_SUCCESS, pch);
     va_end(va);
 
     err->tagname = "need-privileges";
@@ -1575,22 +1575,23 @@ dav_error * acl_store_acl(request_rec *r, dav_resource *resource,
 {
     apr_xml_doc *doc = NULL;
     apr_xml_parser *parser = apr_xml_parser_create(resource->pool);
+	apr_status_t rv;
 
-    if (apr_xml_parser_feed(parser, buffer->buf, buffer->cur_len)) {
+    if ((rv = apr_xml_parser_feed(parser, buffer->buf, buffer->cur_len))) {
 	char sz[100] = "";
 
 	apr_xml_parser_geterror(parser, sz, sizeof(sz));
 	apr_xml_parser_done(parser, &doc);
 
 	return dav_new_error(resource->pool,
-				HTTP_INTERNAL_SERVER_ERROR, 0, sz);
+				HTTP_INTERNAL_SERVER_ERROR, 0, rv, sz);
     }
 
-    apr_xml_parser_done(parser, &doc);
+    rv = apr_xml_parser_done(parser, &doc);
 
     if (doc == NULL || strcmp(doc->root->name, "acl"))
 	return dav_new_error(resource->pool, HTTP_INTERNAL_SERVER_ERROR, 0,
-		"ACL could not be set ! document root element not <acl>");
+		rv, "ACL could not be set ! document root element not <acl>");
 
     #if HAVE_XATTR
     if (conf->use_std_property_db == FALSE) {
@@ -1613,7 +1614,7 @@ dav_error * acl_store_acl(request_rec *r, dav_resource *resource,
 
 	if (db_hooks == NULL)
 	    return dav_new_error(resource->pool, HTTP_INTERNAL_SERVER_ERROR, 0,
-				"ACL could not be set ! db_hooks == NULL");
+				APR_SUCCESS, "ACL could not be set ! db_hooks == NULL");
 
 	ns = apr_array_make(resource->pool, 2, sizeof (const char *));
 	*(const char **) apr_array_push(ns) = NS_DAV;
@@ -1624,7 +1625,7 @@ dav_error * acl_store_acl(request_rec *r, dav_resource *resource,
 
 	if (db == NULL)
 	    return dav_new_error(resource->pool, HTTP_INTERNAL_SERVER_ERROR, 0,
-					"ACL could not be set ! db == NULL");
+					APR_SUCCESS, "ACL could not be set ! db == NULL");
 
 	db_hooks->map_namespaces(db, ns, &map);
 	db_hooks->store(db, acl, doc->root, map);

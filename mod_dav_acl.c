@@ -110,7 +110,7 @@ static dav_error *check_acl(request_rec *r, const dav_resource *resource,
 				    NULL, NULL, DAV_VALIDATE_RESOURCE,
 				    NULL)) != NULL) {
 	/* ### add a higher-level description? */
-	return dav_new_error(r->pool, err->status, 0, err->desc);
+	return dav_new_error(r->pool, err->status, 0, err->aprerr, err->desc);
     }
 
     return acl_check_req(r, r->filename, resource, conf, ARRAY(privs), 0);
