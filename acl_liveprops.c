@@ -39,7 +39,7 @@
 static const char * const dav_acl_namespace_uris[] =
 {
     "DAV:",
-    NULL	/* sentinel */
+    NULL        /* sentinel */
 };
 
 enum {
@@ -47,9 +47,9 @@ enum {
 };
 
 #define ACL_RO_PROP(name, enum_name) \
-	{ DAV_ACL_NAMESPACE_URI_DAV, name, ACL_PROPID_##enum_name, 0 }
+        { DAV_ACL_NAMESPACE_URI_DAV, name, ACL_PROPID_##enum_name, 0 }
 #define ACL_RW_PROP(name, enum_name) \
-	{ DAV_ACL_NAMESPACE_URI_DAV, name, ACL_PROPID_##enum_name, 1 }
+        { DAV_ACL_NAMESPACE_URI_DAV, name, ACL_PROPID_##enum_name, 1 }
 
 enum {
     ACL_PROPID_supported_privilege_set = 1,
@@ -70,7 +70,7 @@ enum {
 static const dav_liveprop_spec dav_acl_props[] =
 {
     ACL_RO_PROP("owner", owner),   /* could also be a writable resource,
-				    * now set by put or mkcol */
+                                    * now set by put or mkcol */
     ACL_RW_PROP("group", group),
     ACL_RO_PROP("supported-privilege-set", supported_privilege_set),
     ACL_RO_PROP("current-user-privilege-set", current_user_privilege_set),
@@ -100,13 +100,13 @@ static xmlNodePtr add_supported(xmlNodePtr parent, xmlNsPtr ns,
                                 const char *desc)
 {
     xmlNodePtr ret = xmlNewChild(parent, ns,
-				 (const xmlChar *) "supported-privilege", NULL);
+                                 (const xmlChar *) "supported-privilege", NULL);
     xmlNodePtr cur = xmlNewChild(ret, ns, (const xmlChar *) "privilege", NULL);
     xmlNewChild(cur, ns, (const xmlChar *) priv, NULL);
     if (abstract)
-	xmlNewChild(ret, ns, (const xmlChar *) "abstract", NULL);
+        xmlNewChild(ret, ns, (const xmlChar *) "abstract", NULL);
     xmlNewChild(ret, ns, (const xmlChar *) "description",
-		(const xmlChar *) desc);
+                (const xmlChar *) desc);
     return ret;
 }
 
@@ -121,152 +121,152 @@ static dav_prop_insert dav_acl_insert_prop(const dav_resource *resource,
     int global_ns, rc;
 
     if (!resource->exists)
-	return DAV_PROP_INSERT_NOTDEF;
+        return DAV_PROP_INSERT_NOTDEF;
 
     /* ### we may want to respond to DAV_PROPID_resourcetype for PRIVATE
        ### resources. need to think on "proper" interaction with mod_dav */
 
     switch (propid) {
     case ACL_PROPID_acl:
-	if (what == DAV_PROP_INSERT_VALUE) {
-	    /* request_rec *r = resource->hooks->get_request_rec(resource) */;
-	    xmlBufferPtr buf = NULL;
-	    const char *pch = NULL;
-	    xmlDocPtr doc;
-	    xmlNodePtr node;
+        if (what == DAV_PROP_INSERT_VALUE) {
+            /* request_rec *r = resource->hooks->get_request_rec(resource) */;
+            xmlBufferPtr buf = NULL;
+            const char *pch = NULL;
+            xmlDocPtr doc;
+            xmlNodePtr node;
 
-	    rc = dav_acl_get_acl(resource, &pch, &rc);
-	    if (rc < 0)
-		return DAV_PROP_INSERT_NOTDEF;
+            rc = dav_acl_get_acl(resource, &pch, &rc);
+            if (rc < 0)
+                return DAV_PROP_INSERT_NOTDEF;
 
-	    doc = xmlParseMemory(pch, rc);
-	    node = doc && doc->children ? doc->children : NULL;
+            doc = xmlParseMemory(pch, rc);
+            node = doc && doc->children ? doc->children : NULL;
 
-	    buf = xmlBufferCreate();
-	    xmlNodeDump(buf, doc, node, 0, 1);
-	    xmlFreeDoc(doc);
+            buf = xmlBufferCreate();
+            xmlNodeDump(buf, doc, node, 0, 1);
+            xmlFreeDoc(doc);
 
-	    apr_text_append(p, phdr, apr_psprintf (p, "%s" DEBUG_CR,
-			    buf->content));
-	    /* we inserted whatever was asked for */
-	    xmlBufferFree(buf);
-	    return what;
-	}
-	break;
+            apr_text_append(p, phdr, apr_psprintf (p, "%s" DEBUG_CR,
+                            buf->content));
+            /* we inserted whatever was asked for */
+            xmlBufferFree(buf);
+            return what;
+        }
+        break;
 
     case ACL_PROPID_acl_restrictions:
-	value = "<D:required-principal>"
-		"<D:authenticated/>"
-		"<D:unauthenticated/>"
-		"<D:self/>"
-		"<D:all/>"
-		"<D:href/>"
-		"<D:property><D:owner/></D:property>"
-		"<D:property><D:group/></D:property>"
-		"</D:required-principal>";
-	break;
+        value = "<D:required-principal>"
+                "<D:authenticated/>"
+                "<D:unauthenticated/>"
+                "<D:self/>"
+                "<D:all/>"
+                "<D:href/>"
+                "<D:property><D:owner/></D:property>"
+                "<D:property><D:group/></D:property>"
+                "</D:required-principal>";
+        break;
 
     case ACL_PROPID_supported_privilege_set:
-	if (what == DAV_PROP_INSERT_VALUE) {
-	    xmlBufferPtr buf = NULL;
+        if (what == DAV_PROP_INSERT_VALUE) {
+            xmlBufferPtr buf = NULL;
 
-	    xmlDocPtr doc = xmlNewDoc((const xmlChar *) XML_VERSION);
-	    xmlNsPtr ns;
-	    xmlNodePtr cur, child, node;
-	    int acl, cups;
+            xmlDocPtr doc = xmlNewDoc((const xmlChar *) XML_VERSION);
+            xmlNsPtr ns;
+            xmlNodePtr cur, child, node;
+            int acl, cups;
 
-	    dav_acl_get_aggregated(resource, &acl, &cups);
+            dav_acl_get_aggregated(resource, &acl, &cups);
 
-	    doc->children = xmlNewDocNode(doc, NULL,
-					  (const xmlChar *) "root", NULL);
-	    xmlSetNs(doc->children,
-		     ns = xmlNewNs(doc->children, (const xmlChar *) "DAV:",
-		     (const xmlChar *) "D"));
+            doc->children = xmlNewDocNode(doc, NULL,
+                                          (const xmlChar *) "root", NULL);
+            xmlSetNs(doc->children,
+                     ns = xmlNewNs(doc->children, (const xmlChar *) "DAV:",
+                     (const xmlChar *) "D"));
 
-	    node = xmlNewChild(doc->children, ns,
-				(const xmlChar *) "supported-privilege-set",
-				NULL);
+            node = xmlNewChild(doc->children, ns,
+                                (const xmlChar *) "supported-privilege-set",
+                                NULL);
 
-	    cur = add_supported(node, ns, "all", 0, "All privileges");
+            cur = add_supported(node, ns, "all", 0, "All privileges");
 
-	    child = add_supported(cur, ns, "read", 0, "Read");
+            child = add_supported(cur, ns, "read", 0, "Read");
 
-	    add_supported(acl ? child : cur, ns, "read-acl", 0, "Read ACL");
+            add_supported(acl ? child : cur, ns, "read-acl", 0, "Read ACL");
 
-	    add_supported(cups ? child : cur, ns,
-			  "read-current-user-privilege-set", 0,
-			  "Read Current User");
+            add_supported(cups ? child : cur, ns,
+                          "read-current-user-privilege-set", 0,
+                          "Read Current User");
 
-	    child = add_supported(cur, ns, "write", 0, "Write");
+            child = add_supported(cur, ns, "write", 0, "Write");
 
-	    add_supported(child, ns, "write-acl", 0, "Write ACL");
-	    add_supported(child, ns, "write-content", 0, "Write content");
-	    add_supported(child, ns, "write-properties", 0,
-							"Write properties");
+            add_supported(child, ns, "write-acl", 0, "Write ACL");
+            add_supported(child, ns, "write-content", 0, "Write content");
+            add_supported(child, ns, "write-properties", 0,
+                                                        "Write properties");
 
-	    if (resource->collection) {
-		add_supported(child, ns, "bind", 0, "Create a collection");
-		add_supported(child, ns, "unbind", 0, "Remove a collection");
-	    }
-	    add_supported(cur, ns, "unlock", 0, "Unlock");
+            if (resource->collection) {
+                add_supported(child, ns, "bind", 0, "Create a collection");
+                add_supported(child, ns, "unbind", 0, "Remove a collection");
+            }
+            add_supported(cur, ns, "unlock", 0, "Unlock");
 
-	    buf = xmlBufferCreate();
-	    xmlNodeDump(buf, doc, node, 0, 1);
-	    xmlFreeDoc(doc);
+            buf = xmlBufferCreate();
+            xmlNodeDump(buf, doc, node, 0, 1);
+            xmlFreeDoc(doc);
 
-	    apr_text_append(p, phdr, apr_psprintf(p, "%s" DEBUG_CR,
-							buf->content));
-	    /* we inserted whatever was asked for */
-	    xmlBufferFree(buf);
-	    return what;
-	}
-	break;
+            apr_text_append(p, phdr, apr_psprintf(p, "%s" DEBUG_CR,
+                                                        buf->content));
+            /* we inserted whatever was asked for */
+            xmlBufferFree(buf);
+            return what;
+        }
+        break;
 
     case ACL_PROPID_group_membership:
-	value = dav_acl_get_group_membership(resource);
-	if (value == NULL)
-	    return DAV_PROP_INSERT_NOTDEF;
-	break;
+        value = dav_acl_get_group_membership(resource);
+        if (value == NULL)
+            return DAV_PROP_INSERT_NOTDEF;
+        break;
 
     case ACL_PROPID_owner:
-	value = dav_acl_get_owner(resource);
-	if (value == NULL)
-	    return DAV_PROP_INSERT_NOTDEF;
-	break;
+        value = dav_acl_get_owner(resource);
+        if (value == NULL)
+            return DAV_PROP_INSERT_NOTDEF;
+        break;
 
     case ACL_PROPID_alternate_uri_set:
-	value = "";  /* may be empty */
-	break;
+        value = "";  /* may be empty */
+        break;
 
     case ACL_PROPID_inherited_acl_set:
-	value = "";  /* not supported because of complexity... */
-	break;
+        value = "";  /* not supported because of complexity... */
+        break;
 
     case ACL_PROPID_current_user_privilege_set:
-	value = dav_acl_get_privs(resource);
-	break;
+        value = dav_acl_get_privs(resource);
+        break;
 
     case ACL_PROPID_principal_collection_set:
-	{
-	    request_rec *r = resource->hooks->get_request_rec(resource);
+        {
+            request_rec *r = resource->hooks->get_request_rec(resource);
 
-	    const char *pcsz = dav_acl_get_principals(r);
+            const char *pcsz = dav_acl_get_principals(r);
 
-	    value = apr_psprintf(p, "<D:href>%s/</D:href>", pcsz ? pcsz : "");
-	}
-	break;
+            value = apr_psprintf(p, "<D:href>%s/</D:href>", pcsz ? pcsz : "");
+        }
+        break;
 
     case ACL_PROPID_current_user_principal:
-	value = dav_acl_get_auth_principal(resource);
-	if (value)
-	    value = apr_psprintf(p, "<D:href>%s</D:href>", value);
-	else
-	    value = "<D:unauthenticated/>";
-	break;
+        value = dav_acl_get_auth_principal(resource);
+        if (value)
+            value = apr_psprintf(p, "<D:href>%s</D:href>", value);
+        else
+            value = "<D:unauthenticated/>";
+        break;
 
     default:
-	/* ### what the heck was this property? */
-	return DAV_PROP_INSERT_NOTDEF;
+        /* ### what the heck was this property? */
+        return DAV_PROP_INSERT_NOTDEF;
     }
 
     /* assert: value != NULL */
@@ -277,16 +277,16 @@ static dav_prop_insert dav_acl_insert_prop(const dav_resource *resource,
     /* assert: info != NULL && info->name != NULL */
 
     if (what == DAV_PROP_INSERT_VALUE)
-	s = apr_psprintf(p, "<lp%d:%s>%s</lp%d:%s>" DEBUG_CR,
-			 global_ns, info->name, value, global_ns, info->name);
+        s = apr_psprintf(p, "<lp%d:%s>%s</lp%d:%s>" DEBUG_CR,
+                         global_ns, info->name, value, global_ns, info->name);
     else if (what == DAV_PROP_INSERT_NAME)
-	s = apr_psprintf(p, "<lp%d:%s/>" DEBUG_CR, global_ns, info->name);
+        s = apr_psprintf(p, "<lp%d:%s/>" DEBUG_CR, global_ns, info->name);
     else
-	/* assert: what == DAV_PROP_INSERT_SUPPORTED */
-	s = apr_psprintf(p,
-			 "<D:supported-live-property D:name=\"%s\" "
-			 "D:namespace=\"%s\"/>" DEBUG_CR,
-			 info->name, dav_acl_namespace_uris[info->ns]);
+        /* assert: what == DAV_PROP_INSERT_SUPPORTED */
+        s = apr_psprintf(p,
+                         "<D:supported-live-property D:name=\"%s\" "
+                         "D:namespace=\"%s\"/>" DEBUG_CR,
+                         info->name, dav_acl_namespace_uris[info->ns]);
 
     apr_text_append(p, phdr, s);
 
@@ -308,7 +308,7 @@ static char *acl_get_elem_text(apr_pool_t *p, const apr_text *t)
     char *pch = NULL;
 
     for ( ; t; t = t->next)
-	pch = apr_pstrcat(p, pch ? pch : "", t->text, NULL);
+        pch = apr_pstrcat(p, pch ? pch : "", t->text, NULL);
 
     return pch;
 }
@@ -323,32 +323,32 @@ static dav_error *dav_acl_patch_validate(const dav_resource *resource,
     switch (priv->propid) {
     case ACL_PROPID_group:
     case ACL_PROPID_group_member_set:
-	/* actually a dead property, but defined as alive to have
-	 * this callback for proppatch */
-	*defer_to_dead = TRUE;
+        /* actually a dead property, but defined as alive to have
+         * this callback for proppatch */
+        *defer_to_dead = TRUE;
 
-	if (operation == DAV_PROP_OP_SET) {
-	    request_rec *r = resource->hooks->get_request_rec(resource);
-	    const char *pch = dav_acl_get_principals(r);
-	    apr_xml_elem *child = elem->first_child;
+        if (operation == DAV_PROP_OP_SET) {
+            request_rec *r = resource->hooks->get_request_rec(resource);
+            const char *pch = dav_acl_get_principals(r);
+            apr_xml_elem *child = elem->first_child;
 
-	    for ( ; child; child = child->next) {
-		if (strcmp(child->name, "href") == 0) {
-		    const char *
-			href = acl_get_elem_text(resource->pool,
-						 child->first_cdata.first);
+            for ( ; child; child = child->next) {
+                if (strcmp(child->name, "href") == 0) {
+                    const char *
+                        href = acl_get_elem_text(resource->pool,
+                                                 child->first_cdata.first);
 
-		    if (pch && (!href || strncmp(href, pch, strlen (pch)) != 0))
-			return dav_new_error(resource->pool, HTTP_CONFLICT, 0, APR_SUCCESS,
-					     "The principal uri path not "
-					     "supported");
-		}
-	    }
-	}
-	break;
+                    if (pch && (!href || strncmp(href, pch, strlen (pch)) != 0))
+                        return dav_new_error(resource->pool, HTTP_CONFLICT, 0, APR_SUCCESS,
+                                             "The principal uri path not "
+                                             "supported");
+                }
+            }
+        }
+        break;
 
     default:
-	break;
+        break;
     }
 
     return NULL;
