@@ -417,7 +417,7 @@ static dav_error *find_principals(request_rec *r, const dav_resource *resource,
 
     rc = acl_get_acl(resource, conf, r->filename, &pch, &size);
     if (rc < 0)
-	return dav_new_error(r->pool, HTTP_NOT_FOUND, 0,
+	return dav_new_error(r->pool, HTTP_NOT_FOUND, 0, APR_SUCCESS,
 		apr_psprintf(r->pool, "No ACL found for the resource %s.",
 				      ap_escape_html(r->pool, r->uri)));
 
@@ -456,7 +456,7 @@ static dav_error *acl_set(request_rec *r, dav_resource *resource,
     dav_buffer buffer[1] = { { 0 } };
 
     if (dav_acl_read_body(r, buffer) < 0)
-	return dav_new_error(r->pool, HTTP_BAD_REQUEST, 0,
+	return dav_new_error(r->pool, HTTP_BAD_REQUEST, 0, APR_SUCCESS,
 			     "Message's request body could not be read");
 
     return acl_store_acl(r, resource, conf, buffer);
@@ -869,7 +869,7 @@ static void post_processing(request_rec *r, const dav_resource *resource,
 }
 
 /** acl hooks */
-static dav_hooks_acl acl =
+static dav_acl_provider acl =
 {
     check_method,
     check_read,
@@ -878,12 +878,12 @@ static dav_hooks_acl acl =
     NULL
 };
 
-static dav_hooks_acl *acl_nolock(void)
+static dav_acl_provider *acl_nolock(void)
 {
-    static dav_hooks_acl nolock =
+    static dav_acl_provider nolock =
     {
-	acl_check_read: check_read_nolock,
-	acl_check_prop: check_prop_nolock,
+        .acl_check_read = check_read_nolock,
+        .acl_check_prop = check_prop_nolock,
 	0
     };
     return &nolock;
@@ -945,7 +945,7 @@ static void send_props(apr_bucket_brigade *bb, request_rec *r, request_rec *rf,
 
     apr_pool_clear(subpool);
 
-    dav_send_one_response(response, bb, r->output_filters, subpool);
+    dav_send_one_response(response, bb, r, subpool);
 
     if (propdb)
 	dav_close_propdb(propdb);
@@ -985,7 +985,7 @@ static void send_principal_props(const char *uri, apr_bucket_brigade **bb,
     err = repos->get_resource(rf, NULL, NULL, 0, &resource);
 
     if (err == NULL) {
-	resource->acl_hooks = acl_nolock();
+	resource->acls = acl_nolock();
 
 	/* don't report principal if no read privilege exists */
 	if (check_read_common(conf, rf, resource) == NULL) {
@@ -1197,21 +1197,21 @@ static int dump_principal_match(request_rec *r, davacl_dir_cfg *conf,
     }
 
     if (f < 0)
-	return dav_acl_exec_error(r, dav_new_error(r->pool, HTTP_BAD_REQUEST, 0,
+	return dav_acl_exec_error(r, dav_new_error(r->pool, HTTP_BAD_REQUEST, 0, APR_SUCCESS,
 				  "Given REPORT not supported, only self & owner"));
 
     if (f == 0) {
 	const char *pch = acl_get_principal_dir(conf);
 
 	if (pch && strncmp(pch, r->filename, strlen(pch)))
-	    return dav_acl_exec_error(r, dav_new_error(r->pool, HTTP_BAD_REQUEST, 0,
+	    return dav_acl_exec_error(r, dav_new_error(r->pool, HTTP_BAD_REQUEST, 0, APR_SUCCESS,
 				      "Wrong R-URI in principal (<self>) REPORT"));
     }
     else {
 	DIR *dp = opendir(r->filename);
 
 	if (dp == NULL)
-	    return dav_acl_exec_error(r, dav_new_error(r->pool, HTTP_BAD_REQUEST, 0,
+	    return dav_acl_exec_error(r, dav_new_error(r->pool, HTTP_BAD_REQUEST, 0, APR_SUCCESS,
 				      "A collection URI is required by REPORT"));
 	closedir(dp);
     }
@@ -1304,7 +1304,7 @@ static int report_method(request_rec *r, davacl_server_cfg *sconf,
 	return dav_acl_exec_error(r, err);
 
     if (resource->collection == FALSE)
-	return dav_acl_exec_error(r, dav_new_error(r->pool, HTTP_BAD_REQUEST, 0,
+	return dav_acl_exec_error(r, dav_new_error(r->pool, HTTP_BAD_REQUEST, 0, APR_SUCCESS,
 				  "R-URI must be a collection URI"));
 
     puri = apr_psprintf(r->pool, "%s%s", conf->principals,
@@ -1389,7 +1389,7 @@ static int report_method(request_rec *r, davacl_server_cfg *sconf,
 error:
     xmlFreeDoc(doc);
     err = dav_new_error(r->pool, HTTP_BAD_REQUEST,
-			0, "Depth-header value incorrect");
+			0, APR_SUCCESS, "Depth-header value incorrect");
 
     return dav_acl_exec_error(r, err);
 }
@@ -1481,7 +1481,7 @@ static int initialize_module(apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp,
 	return HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    rc = unixd_set_global_mutex_perms(sconf->mutex);
+    rc = ap_unixd_set_global_mutex_perms(sconf->mutex);
     if (rc != APR_SUCCESS) {
 	ap_log_error(APLOG_MARK, APLOG_CRIT, rc, s,
 		     "mod_dav_acl: could not set lock mutex permissions");
@@ -1494,7 +1494,7 @@ static int initialize_module(apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp,
     iM_ACL = ap_method_register(p, "ACL");
     iM_HEAD = ap_method_register(p, "HEAD");
 
-    dav_acl_register_hooks(p, &acl);
+    dav_acl_provider_register(p, "acl", &acl);
 
     return OK;
 }
@@ -1557,8 +1557,7 @@ dav_resource_type_provider
 #endif
 res_hooks =
 {
-    get_resource_type,
-    NULL
+    get_resource_type
 };
 
 static void add_input_filter(request_rec *r)

@@ -339,7 +339,7 @@ static dav_error *dav_acl_patch_validate(const dav_resource *resource,
 						 child->first_cdata.first);
 
 		    if (pch && (!href || strncmp(href, pch, strlen (pch)) != 0))
-			return dav_new_error(resource->pool, HTTP_CONFLICT, 0,
+			return dav_new_error(resource->pool, HTTP_CONFLICT, 0, APR_SUCCESS,
 					     "The principal uri path not "
 					     "supported");
 		}

@@ -1501,14 +1501,14 @@ DAV_DECLARE(dav_error *) dav_acl_check(request_rec *r,
 DAV_DECLARE(dav_error *) dav_acl_store_owner(request_rec *r,
                                               const dav_resource *resource)
 {
-    if (resource->acl_hooks == NULL) {
-	const dav_hooks_acl *acl = dav_get_acl_hooks();
+    if (resource->acls == NULL) {
+        const dav_acl_provider *acl = dav_get_acl_providers("acl");
 
 	if (acl)
 	    acl->acl_post_processing(r, resource, 1);
     }
     else {
-	resource->acl_hooks->acl_post_processing(r, resource, 1);
+        resource->acls->acl_post_processing(r, resource, 1);
     }
 
     return NULL;
